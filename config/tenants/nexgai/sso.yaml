@@ -1,0 +1,26 @@
+# Tenant SSO config for "nexgai".
+# Values are placeholders for local dev; production should source these from a
+# secret manager (or env interpolation) and never check real creds into git.
+
+provider: azure_ad
+tenant_id: ""      # Azure AD tenant id (GUID)
+client_id: ""      # Azure App Registration client id
+client_secret: ""  # Azure App Registration client secret
+redirect_uri: "http://localhost:8002/api/auth/sso/callback"
+scopes:
+  - openid
+  - profile
+  - email
+  - User.Read
+
+# Map Azure AD security groups onto MyAi-Enterprise application roles.
+# Roles control RBAC in the FastAPI layer (see app/auth/middleware.py).
+role_mapping:
+  MyAi-NexgAI-Admins:
+    - admin
+    - supervisor
+  MyAi-NexgAI-Supervisors:
+    - supervisor
+    - agent
+  MyAi-NexgAI-Agents:
+    - agent

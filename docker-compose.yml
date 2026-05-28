@@ -1,0 +1,42 @@
+version: "3.9"
+
+services:
+  myai-enterprise:
+    build: .
+    container_name: myai-enterprise
+    ports:
+      - "8002:8002"
+    env_file:
+      - .env
+    environment:
+      APP_ENV: development
+      DATABASE_URL: postgresql+asyncpg://myai:myai@postgres:5432/myai_enterprise
+    volumes:
+      - ./data:/app/data
+      - ./logs:/app/logs
+      - ./config:/app/config
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: myai-enterprise-postgres
+    environment:
+      POSTGRES_USER: myai
+      POSTGRES_PASSWORD: myai
+      POSTGRES_DB: myai_enterprise
+    ports:
+      - "5433:5432"
+    volumes:
+      - myai_pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U myai -d myai_enterprise"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+volumes:
+  myai_pg_data:

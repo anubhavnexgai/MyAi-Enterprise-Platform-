@@ -1,0 +1,11 @@
+display_name: "NexgAI"
+enabled: true
+
+# Leave empty for shared DB (per-row tenant_id isolation).
+# Set to a dedicated URL to switch on physical DB isolation.
+database_url: ""
+
+metadata:
+  vertical: "ai_workforce"
+  environment: "development"
+  primary_contact: "anubhav@nexgai.com"

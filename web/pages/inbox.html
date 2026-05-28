@@ -1,0 +1,73 @@
+<div class="page-header">
+  <div>
+    <h1 class="page-title">Agent Inbox</h1>
+    <div class="page-subtitle">Unified Task Management</div>
+  </div>
+  <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+    <span class="pill pill-teal"><span class="dot"></span>Human Agent</span>
+    <button class="btn">
+      <span class="material-symbols-rounded">tips_and_updates</span>
+      NBA Assistant
+    </button>
+    <button class="btn" id="simEmailBtn">
+      <span class="material-symbols-rounded">mark_email_unread</span>
+      Simulate Email
+    </button>
+    <button class="btn btn-primary" id="refreshInbox">
+      <span class="material-symbols-rounded">refresh</span>
+      Refresh
+    </button>
+  </div>
+</div>
+
+<!-- AI Autonomy Card -->
+<div class="card autonomy-card">
+  <div class="autonomy-head">
+    <div>
+      <h3 class="card-title">AI Autonomy Level</h3>
+      <div class="card-sub" id="autonomySub">Drag to choose how much the AI does autonomously</div>
+    </div>
+    <span class="pill pill-red" id="levelBadge">L1 — Observe</span>
+  </div>
+  <div class="autonomy-slider" id="autonomySlider"></div>
+  <div class="autonomy-levels" id="autonomyLevels"></div>
+</div>
+
+<!-- Filter Row -->
+<div class="filter-row">
+  <button class="pill-filter active" data-prio="All">All</button>
+  <button class="pill-filter" data-prio="Critical">Critical</button>
+  <button class="pill-filter" data-prio="High">High</button>
+  <button class="pill-filter" data-prio="Medium">Medium</button>
+  <button class="pill-filter" data-prio="Low">Low</button>
+  <select class="select">
+    <option>All Teams</option>
+    <option>Card Services</option>
+    <option>Lending</option>
+    <option>Disputes</option>
+    <option>Retention</option>
+  </select>
+  <div style="margin-left:auto;font-size:13px;color:var(--text-muted)" id="taskCount">Showing 0 of 0 tasks</div>
+</div>
+
+<!-- Mode Banner -->
+<div class="alert-banner" id="modeBanner">
+  <span class="material-symbols-rounded">info</span>
+  Active mode: L1 — Observe. AI surfaces insights only — no actions are being taken on tasks.
+</div>
+
+<!-- Split -->
+<div class="split">
+  <div>
+    <div id="taskList"></div>
+  </div>
+  <div class="card" id="taskDetail">
+    <div class="empty-pane">
+      <div>
+        <span class="material-symbols-rounded">inbox</span>
+        <h3 style="margin:8px 0 4px;color:var(--text-strong)">Select a task</h3>
+        <div>Pick a task on the left to see full details, AI thinking, and suggested actions.</div>
+      </div>
+    </div>
+  </div>
+</div>

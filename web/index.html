@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>MyAi for NexgAI</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link
+    href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap"
+    rel="stylesheet" />
+  <link
+    rel="stylesheet"
+    href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@24,400,0,0" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div class="app">
+    <!-- ============== Sidebar ============== -->
+    <aside class="sidebar">
+      <div class="sidebar-brand">
+        <div class="brand-mark">M</div>
+        <div>
+          <div class="brand-name">MyAi</div>
+          <div class="brand-sub">for NexgAI</div>
+        </div>
+      </div>
+
+      <nav class="nav" id="nav">
+        <div class="nav-label">Operations</div>
+        <a href="#/dashboard" data-route="dashboard">
+          <span class="material-symbols-rounded">dashboard</span>
+          <span>Dashboard</span>
+        </a>
+        <a href="#/inbox" data-route="inbox">
+          <span class="material-symbols-rounded">inbox</span>
+          <span>Inbox</span>
+        </a>
+        <a href="#/copilot" data-route="copilot">
+          <span class="material-symbols-rounded">smart_toy</span>
+          <span>Copilot</span>
+        </a>
+
+        <div class="nav-label">Telemetry</div>
+        <a href="#/logs" data-route="logs">
+          <span class="material-symbols-rounded">monitoring</span>
+          <span>Logs</span>
+        </a>
+
+        <div class="nav-label">Admin</div>
+        <a href="#/connectors" data-route="connectors">
+          <span class="material-symbols-rounded">hub</span>
+          <span>Connectors</span>
+        </a>
+        <a href="#/settings" data-route="settings">
+          <span class="material-symbols-rounded">settings</span>
+          <span>Settings</span>
+        </a>
+      </nav>
+
+      <div class="sidebar-user" id="userBtn">
+        <div class="avatar">JP</div>
+        <div class="user-meta">
+          <div class="user-name">Jigar Patel</div>
+          <div class="user-role">Supervisor · NexgAI</div>
+        </div>
+        <span class="material-symbols-rounded" style="color: var(--text-muted)">unfold_more</span>
+        <div class="user-menu" id="userMenu">
+          <button><span class="material-symbols-rounded">person</span>Profile</button>
+          <button><span class="material-symbols-rounded">notifications</span>Notifications</button>
+          <button><span class="material-symbols-rounded">help</span>Help &amp; docs</button>
+          <button><span class="material-symbols-rounded">logout</span>Sign out</button>
+        </div>
+      </div>
+    </aside>
+
+    <!-- ============== Main ============== -->
+    <main class="main">
+      <div id="view" class="page">
+        <!-- Page content swapped in by router -->
+      </div>
+    </main>
+  </div>
+
+  <!-- Modal mount -->
+  <div class="modal-backdrop" id="modalBackdrop">
+    <div class="modal" id="modal"></div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>

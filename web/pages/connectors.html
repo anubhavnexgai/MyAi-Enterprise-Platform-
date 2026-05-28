@@ -1,0 +1,289 @@
+<!-- Connectors page — light-mode banking-ops aesthetic.
+     Loaded by the SPA router via fetch() into the main content slot.
+     All script + style is scoped to this fragment so it can live alongside
+     other pages.
+-->
+<style>
+  .conn-page {
+    --bg: #f8fafc;
+    --card: #ffffff;
+    --border: #e2e8f0;
+    --text: #0f172a;
+    --muted: #64748b;
+    --accent: #0ea5a5;
+    --accent-dark: #0d9488;
+    --danger: #b91c1c;
+    --success: #15803d;
+    --gray: #94a3b8;
+    color: var(--text);
+    padding: 32px 40px;
+    background: var(--bg);
+    min-height: 100%;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  }
+  .conn-page h1 {
+    font-size: 22px; margin: 0 0 4px 0;
+  }
+  .conn-page .subtitle {
+    color: var(--muted); margin: 0 0 24px 0; font-size: 14px;
+  }
+  .conn-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+    gap: 16px;
+  }
+  .conn-card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 18px 20px;
+    display: flex; flex-direction: column;
+    box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+  }
+  .conn-card-head {
+    display: flex; align-items: center; gap: 12px; margin-bottom: 10px;
+  }
+  .conn-card-icon {
+    width: 38px; height: 38px;
+    border-radius: 8px;
+    background: #f1f5f9;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 11px; font-weight: 600; color: var(--muted);
+    border: 1px solid var(--border);
+  }
+  .conn-card-title { font-size: 15px; font-weight: 600; margin: 0; }
+  .conn-card-desc {
+    font-size: 13px; color: var(--muted);
+    margin: 0 0 14px 0; line-height: 1.4; min-height: 36px;
+  }
+  .conn-status-row {
+    display: flex; align-items: center; gap: 8px;
+    margin-bottom: 14px; font-size: 13px;
+  }
+  .status-dot {
+    width: 8px; height: 8px; border-radius: 50%;
+    background: var(--gray);
+  }
+  .status-dot.connected { background: var(--success); }
+  .status-dot.unconfigured { background: #f59e0b; }
+  .status-text { color: var(--muted); }
+  .status-text.connected { color: var(--success); font-weight: 500; }
+  .status-text.unconfigured { color: #b45309; }
+  .conn-meta { font-size: 12px; color: var(--muted); margin-bottom: 12px; }
+  .conn-actions {
+    display: flex; gap: 8px; margin-top: auto;
+  }
+  .conn-btn {
+    flex: 1;
+    padding: 8px 14px;
+    border-radius: 8px;
+    font-size: 13px; font-weight: 500;
+    cursor: pointer; transition: background .15s, border-color .15s;
+    border: 1px solid transparent;
+  }
+  .conn-btn.primary {
+    background: var(--accent); color: #fff;
+  }
+  .conn-btn.primary:hover { background: var(--accent-dark); }
+  .conn-btn.primary:disabled {
+    background: #cbd5e1; cursor: not-allowed;
+  }
+  .conn-btn.secondary {
+    background: #fff; border-color: var(--danger); color: var(--danger);
+  }
+  .conn-btn.secondary:hover { background: #fef2f2; }
+  .conn-toast {
+    position: fixed; right: 24px; bottom: 24px;
+    background: var(--text); color: #fff;
+    padding: 10px 16px; border-radius: 8px;
+    font-size: 13px; opacity: 0; transform: translateY(10px);
+    transition: opacity .2s, transform .2s; pointer-events: none;
+  }
+  .conn-toast.show { opacity: 1; transform: translateY(0); }
+  .conn-empty {
+    color: var(--muted); padding: 40px 0; text-align: center;
+  }
+</style>
+
+<div class="conn-page" id="conn-page">
+  <h1>Connectors</h1>
+  <p class="subtitle">
+    Link your accounts so your copilot can read your email, calendar and files —
+    all scoped strictly to <span id="conn-user-label">your user</span>.
+  </p>
+  <div class="conn-grid" id="conn-grid">
+    <div class="conn-empty">Loading connectors…</div>
+  </div>
+  <div class="conn-toast" id="conn-toast"></div>
+</div>
+
+<script>
+(function () {
+  const grid  = document.getElementById('conn-grid');
+  const toast = document.getElementById('conn-toast');
+  const userLbl = document.getElementById('conn-user-label');
+  const API = '/api/connectors';
+  let pollTimer = null;
+  let pollingFor = null;
+
+  function showToast(msg, ok = true) {
+    toast.textContent = msg;
+    toast.style.background = ok ? '#0f172a' : '#b91c1c';
+    toast.classList.add('show');
+    setTimeout(() => toast.classList.remove('show'), 3200);
+  }
+
+  function fmtTime(iso) {
+    if (!iso) return '—';
+    try {
+      const d = new Date(iso);
+      const diffMs = Date.now() - d.getTime();
+      const mins = Math.floor(diffMs / 60000);
+      if (mins < 1) return 'just now';
+      if (mins < 60) return mins + ' min ago';
+      const hrs = Math.floor(mins / 60);
+      if (hrs < 24) return hrs + ' hr ago';
+      return d.toLocaleDateString();
+    } catch (e) { return iso; }
+  }
+
+  function cardHtml(c) {
+    const connected = c.connected;
+    const configured = c.configured;
+    let statusClass, statusText;
+    if (connected) {
+      statusClass = 'connected';
+      statusText = 'Connected' + (c.account_label ? ' as ' + c.account_label : '');
+    } else if (!configured) {
+      statusClass = 'unconfigured';
+      statusText = 'OAuth credentials not configured';
+    } else {
+      statusClass = '';
+      statusText = 'Not connected';
+    }
+    const lastSync = connected
+      ? 'Last synced: ' + fmtTime(c.last_refreshed_at || c.connected_at)
+      : 'Last synced: —';
+
+    const btn = connected
+      ? `<button class="conn-btn secondary" data-action="disconnect" data-provider="${c.provider}">Disconnect</button>`
+      : `<button class="conn-btn primary" data-action="connect" data-provider="${c.provider}" ${configured ? '' : 'disabled title="Set OAuth env vars to enable"'}>Connect</button>`;
+
+    return `
+      <div class="conn-card" data-provider="${c.provider}">
+        <div class="conn-card-head">
+          <div class="conn-card-icon">${c.icon || c.provider.slice(0, 4).toUpperCase()}</div>
+          <h2 class="conn-card-title">${c.display_name}</h2>
+        </div>
+        <p class="conn-card-desc">${c.description || ''}</p>
+        <div class="conn-status-row">
+          <span class="status-dot ${statusClass}"></span>
+          <span class="status-text ${statusClass}">${statusText}</span>
+        </div>
+        <div class="conn-meta">${lastSync}</div>
+        <div class="conn-actions">${btn}</div>
+      </div>
+    `;
+  }
+
+  async function load() {
+    try {
+      const resp = await fetch(API, { credentials: 'include' });
+      if (!resp.ok) throw new Error('HTTP ' + resp.status);
+      const data = await resp.json();
+      if (userLbl && data.user_id) userLbl.textContent = data.user_id;
+      const connectors = data.connectors || [];
+      if (!connectors.length) {
+        grid.innerHTML = '<div class="conn-empty">No connectors available.</div>';
+        return;
+      }
+      grid.innerHTML = connectors.map(cardHtml).join('');
+    } catch (err) {
+      grid.innerHTML = '<div class="conn-empty">Failed to load: ' + err.message + '</div>';
+    }
+  }
+
+  async function connect(provider) {
+    try {
+      const resp = await fetch(`${API}/${provider}/connect`, { credentials: 'include' });
+      if (!resp.ok) {
+        const j = await resp.json().catch(() => ({}));
+        throw new Error(j.detail || ('HTTP ' + resp.status));
+      }
+      const { auth_url } = await resp.json();
+      const popup = window.open(auth_url, 'connector_oauth',
+        'width=560,height=720,menubar=no,toolbar=no,location=yes');
+      if (!popup) {
+        showToast('Popup blocked — allow popups and retry.', false);
+        return;
+      }
+      startPolling(provider);
+    } catch (err) {
+      showToast('Connect failed: ' + err.message, false);
+    }
+  }
+
+  async function disconnect(provider) {
+    if (!confirm('Disconnect ' + provider + '? The agent will lose access immediately.')) return;
+    try {
+      const resp = await fetch(`${API}/${provider}`, {
+        method: 'DELETE', credentials: 'include'
+      });
+      if (!resp.ok) throw new Error('HTTP ' + resp.status);
+      showToast('Disconnected ' + provider);
+      load();
+    } catch (err) {
+      showToast('Disconnect failed: ' + err.message, false);
+    }
+  }
+
+  function startPolling(provider) {
+    pollingFor = provider;
+    if (pollTimer) clearInterval(pollTimer);
+    pollTimer = setInterval(async () => {
+      try {
+        const resp = await fetch(`${API}/${provider}/status`, { credentials: 'include' });
+        if (!resp.ok) return;
+        const status = await resp.json();
+        if (status.connected) {
+          clearInterval(pollTimer); pollTimer = null; pollingFor = null;
+          showToast('Connected ' + provider + (status.account_label ? ' (' + status.account_label + ')' : ''));
+          load();
+        }
+      } catch (e) { /* keep polling */ }
+    }, 2000);
+    // Stop polling after 5 minutes regardless.
+    setTimeout(() => {
+      if (pollTimer && pollingFor === provider) {
+        clearInterval(pollTimer); pollTimer = null; pollingFor = null;
+      }
+    }, 5 * 60 * 1000);
+  }
+
+  // Delegate clicks for connect/disconnect buttons.
+  grid.addEventListener('click', (ev) => {
+    const btn = ev.target.closest('[data-action]');
+    if (!btn) return;
+    const action = btn.dataset.action;
+    const provider = btn.dataset.provider;
+    if (action === 'connect') connect(provider);
+    else if (action === 'disconnect') disconnect(provider);
+  });
+
+  // Listen for postMessage from the OAuth callback page so we can refresh
+  // immediately instead of waiting on the 2s poll.
+  window.addEventListener('message', (ev) => {
+    const d = ev.data || {};
+    if (d && d.type === 'myai:connector') {
+      if (d.status === 'ok') {
+        showToast('Connected ' + (d.provider || ''));
+        load();
+      } else if (d.status === 'error') {
+        showToast('Connection failed for ' + (d.provider || ''), false);
+      }
+    }
+  });
+
+  load();
+})();
+</script>

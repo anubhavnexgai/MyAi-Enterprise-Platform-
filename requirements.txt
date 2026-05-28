@@ -1,0 +1,28 @@
+# Web framework
+fastapi>=0.110.0
+uvicorn[standard]>=0.27.0
+python-multipart>=0.0.9
+itsdangerous>=2.1.2
+
+# Settings / validation
+pydantic>=2.5.0
+pydantic-settings>=2.1.0
+PyYAML>=6.0.1
+
+# Auth
+PyJWT[crypto]>=2.8.0
+httpx>=0.26.0
+cryptography>=42.0.0
+
+# Database
+sqlalchemy>=2.0.25
+aiosqlite>=0.19.0
+asyncpg>=0.29.0
+alembic>=1.13.0
+
+# LLM client (talks to local Ollama; lightweight)
+aiohttp>=3.9.0
+
+# Utilities
+python-dotenv>=1.0.0
+structlog>=24.1.0

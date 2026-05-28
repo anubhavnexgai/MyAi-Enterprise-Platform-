@@ -1,0 +1,50 @@
+<div class="page-header">
+  <div>
+    <h1 class="page-title">Supervisor Playground</h1>
+    <div class="page-subtitle">AI-Powered Operations Command Center</div>
+  </div>
+  <div style="display:flex;gap:8px;flex-wrap:wrap">
+    <button class="btn">
+      <span class="material-symbols-rounded">tips_and_updates</span>
+      NBA Assistant
+    </button>
+    <button class="btn btn-primary" id="refreshBtn">
+      <span class="material-symbols-rounded">refresh</span>
+      Refresh
+    </button>
+  </div>
+</div>
+
+<div class="status-bar">
+  <span class="live-dot"></span>
+  Command Center · Last updated: <b id="lastUpdated" style="color:var(--text)">--:--:--</b>
+</div>
+
+<!-- KPI tiles -->
+<div class="kpi-row" id="kpiRow"></div>
+
+<!-- Retention Command Center -->
+<div class="card retention">
+  <div class="retention-head">
+    <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+      <h3 class="card-title">Retention Command Center</h3>
+      <span class="pill pill-red"><span class="dot"></span>1 Escalation Pending</span>
+    </div>
+    <a href="#/dashboard" style="font-size:12.5px">Collapse</a>
+  </div>
+  <div class="retention-substats" id="retentionSubstats"></div>
+</div>
+
+<!-- Live Negotiations -->
+<div class="card">
+  <div class="card-head">
+    <div>
+      <h3 class="card-title">Live Negotiations</h3>
+      <div class="card-sub">Click any row to inspect strategy &amp; conversation</div>
+    </div>
+    <span class="pill pill-teal"><span class="dot"></span>Live</span>
+  </div>
+  <div class="card-body">
+    <div id="negList"></div>
+  </div>
+</div>

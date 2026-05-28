@@ -1,0 +1,65 @@
+<div class="page-header">
+  <div>
+    <h1 class="page-title">Settings</h1>
+    <div class="page-subtitle">Workspace preferences and policies</div>
+  </div>
+</div>
+
+<div class="card card-pad" style="margin-bottom:14px">
+  <h3 class="card-title" style="margin-bottom:12px">Workspace</h3>
+  <div class="duo-grid">
+    <div>
+      <div class="kpi-label" style="margin-bottom:4px">ORGANIZATION</div>
+      <input class="select" style="width:100%" value="NexgAI" />
+    </div>
+    <div>
+      <div class="kpi-label" style="margin-bottom:4px">DEFAULT TIME ZONE</div>
+      <select class="select" style="width:100%">
+        <option>Europe/London</option>
+        <option>America/New_York</option>
+        <option>Asia/Singapore</option>
+      </select>
+    </div>
+  </div>
+</div>
+
+<div class="card card-pad" style="margin-bottom:14px">
+  <h3 class="card-title" style="margin-bottom:12px">AI Policies</h3>
+  <div style="display:flex;flex-direction:column;gap:14px">
+    <div style="display:flex;align-items:center;justify-content:space-between">
+      <div>
+        <div style="font-weight:600;color:var(--text-strong)">Require approval above 30% discount</div>
+        <div style="font-size:12px;color:var(--text-muted)">Block AI from auto-approving large retention offers</div>
+      </div>
+      <div class="switch on"></div>
+    </div>
+    <div style="display:flex;align-items:center;justify-content:space-between">
+      <div>
+        <div style="font-weight:600;color:var(--text-strong)">Block sensitive PII in logs</div>
+        <div style="font-size:12px;color:var(--text-muted)">Mask card numbers, account numbers, SSN-like values</div>
+      </div>
+      <div class="switch on"></div>
+    </div>
+    <div style="display:flex;align-items:center;justify-content:space-between">
+      <div>
+        <div style="font-weight:600;color:var(--text-strong)">Human-on-the-loop at L5</div>
+        <div style="font-size:12px;color:var(--text-muted)">Always notify a supervisor on autonomous actions</div>
+      </div>
+      <div class="switch on"></div>
+    </div>
+  </div>
+</div>
+
+<div class="card card-pad">
+  <h3 class="card-title" style="margin-bottom:12px">Danger Zone</h3>
+  <div style="display:flex;justify-content:space-between;align-items:center">
+    <div>
+      <div style="font-weight:600;color:var(--text-strong)">Reset workspace</div>
+      <div style="font-size:12px;color:var(--text-muted)">Clears all data — cannot be undone</div>
+    </div>
+    <button class="btn btn-danger">
+      <span class="material-symbols-rounded">delete</span>
+      Reset
+    </button>
+  </div>
+</div>

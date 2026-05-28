@@ -1,0 +1,65 @@
+<div class="page-header">
+  <div>
+    <h1 class="page-title">Logs</h1>
+    <div class="page-subtitle">Real-time activity log</div>
+  </div>
+  <div style="display:flex;gap:8px;align-items:center">
+    <span style="font-size:12.5px;color:var(--text-muted)">Auto-scroll</span>
+    <div class="switch on" id="autoscrollSwitch"></div>
+    <button class="btn" id="pauseBtn">
+      <span class="material-symbols-rounded">pause</span>
+      Pause
+    </button>
+    <button class="btn btn-primary" id="exportBtn">
+      <span class="material-symbols-rounded">download</span>
+      Export
+    </button>
+  </div>
+</div>
+
+<div class="filter-row">
+  <button class="pill-filter active" data-log="All">All</button>
+  <button class="pill-filter" data-log="Tool Calls">Tool Calls</button>
+  <button class="pill-filter" data-log="LLM Queries">LLM Queries</button>
+  <button class="pill-filter" data-log="Errors">Errors</button>
+  <button class="pill-filter" data-log="Auth Events">Auth Events</button>
+  <span style="margin-left:auto;font-size:12px;color:var(--text-muted)">
+    <span class="live-dot" style="width:7px;height:7px;border-radius:50%;background:var(--green);display:inline-block;margin-right:6px;vertical-align:1px"></span>
+    Streaming
+  </span>
+</div>
+
+<div class="logs-layout">
+  <div class="log-table">
+    <div class="log-controls" style="font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--text-muted)">
+      <div style="display:grid;grid-template-columns:130px 100px 160px 1fr 80px 36px;gap:12px;width:100%">
+        <div>Timestamp</div>
+        <div>Type</div>
+        <div>User</div>
+        <div>Event</div>
+        <div style="text-align:right">Latency</div>
+        <div></div>
+      </div>
+    </div>
+    <div class="log-rows" id="logRows"></div>
+  </div>
+
+  <aside class="log-side">
+    <div class="card card-pad">
+      <div class="stat-label">Events / minute</div>
+      <div class="stat-big" id="statEpm">—</div>
+    </div>
+    <div class="card card-pad">
+      <div class="stat-label">Success rate</div>
+      <div class="stat-big" id="statSuccess">—</div>
+    </div>
+    <div class="card card-pad">
+      <div class="stat-label">Top tool</div>
+      <div class="stat-big" id="statTopTool" style="font-size:18px">send_email</div>
+    </div>
+    <div class="card card-pad">
+      <div class="stat-label">Errors today</div>
+      <div class="stat-big" id="statErrors" style="color:var(--red)">0</div>
+    </div>
+  </aside>
+</div>
