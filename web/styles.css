@@ -556,9 +556,11 @@ button { font-family: inherit; }
   max-height: 240px;
   overflow-y: auto;
 }
-.msg { max-width: 75%; padding: 9px 12px; border-radius: 12px; font-size: 13px; }
-.msg.user { align-self: flex-start; background: var(--bg-subtle); color: var(--text-strong); border-bottom-left-radius: 4px; }
-.msg.ai { align-self: flex-end; background: var(--accent); color: white; border-bottom-right-radius: 4px; }
+.msg { max-width: 75%; padding: 10px 14px; border-radius: 14px; font-size: 13.5px; line-height: 1.5; word-wrap: break-word; }
+/* User on the RIGHT (your side), AI on the LEFT (assistant's side) */
+.msg.user { align-self: flex-end; background: var(--accent); color: #fff; border-bottom-right-radius: 4px; }
+.msg.ai { align-self: flex-start; background: #FFFFFF; color: var(--text-strong); border: 1px solid var(--border); border-bottom-left-radius: 4px; }
+.msg.ai.typing-bubble { opacity: .65; font-style: italic; }
 .msg-meta { font-size: 10.5px; color: var(--text-soft); margin-top: 2px; }
 
 .callout-yellow {

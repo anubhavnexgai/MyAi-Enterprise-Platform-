@@ -156,14 +156,14 @@ const MOCK = {
   ],
 
   inbox: [
-    { id: "t1", title: "Card blocked — international transaction flagged", priority: "Critical", customer: "Sarah Mitchell", source: "phone", ago: "2m", conf: 92 },
-    { id: "t2", title: "Dispute charge from 'TX-AERO'", priority: "High", customer: "Daniel Okafor", source: "email", ago: "8m", conf: 81 },
-    { id: "t3", title: "Loan rate inquiry — first-time buyer", priority: "Medium", customer: "Priya Raman", source: "chat", ago: "12m", conf: 88 },
-    { id: "t4", title: "Update home address after relocation", priority: "Low", customer: "James Wong", source: "web", ago: "21m", conf: 96 },
-    { id: "t5", title: "Travel notification — Japan, 3 weeks", priority: "Low", customer: "Aisha Khan", source: "chat", ago: "34m", conf: 99 },
-    { id: "t6", title: "Mortgage redemption statement request", priority: "High", customer: "Robert Hayes", source: "email", ago: "41m", conf: 74 },
-    { id: "t7", title: "Standing order failed — insufficient funds", priority: "Critical", customer: "Lucia Conti", source: "phone", ago: "47m", conf: 90 },
-    { id: "t8", title: "Increase credit card limit to £8,000", priority: "Medium", customer: "Marcus Reid", source: "web", ago: "1h", conf: 67 },
+    { id: "t1", title: "Reply to Priti — sprint summary", priority: "High", customer: "Priti Padhy", source: "email", ago: "2h", conf: 92 },
+    { id: "t2", title: "Confirm Wednesday 3pm 1:1 with Sarah", priority: "Medium", customer: "Sarah Chen", source: "calendar", ago: "4h", conf: 95 },
+    { id: "t3", title: "Review PRD doc from Alex", priority: "Medium", customer: "Alex Rivera", source: "drive", ago: "6h", conf: 88 },
+    { id: "t4", title: "Code review PR #142 — Life-Harness fix", priority: "High", customer: "GitHub", source: "github", ago: "yesterday", conf: 76 },
+    { id: "t5", title: "Slack: @channel — sync at 2pm tomorrow?", priority: "Low", customer: "#eng", source: "slack", ago: "yesterday", conf: 90 },
+    { id: "t6", title: "RSVP: Quarterly all-hands Thursday", priority: "Low", customer: "Calendar", source: "calendar", ago: "yesterday", conf: 99 },
+    { id: "t7", title: "Expense report — May trips", priority: "Critical", customer: "Finance", source: "email", ago: "2d", conf: 82 },
+    { id: "t8", title: "Onboard new intern — paperwork pending", priority: "Medium", customer: "HR", source: "email", ago: "3d", conf: 70 },
   ],
 
   copilotRecents: [
@@ -476,8 +476,21 @@ const LEVELS = [
 ];
 
 async function initInbox() {
-  const data = (await safeFetchJson("/api/inbox")) || MOCK;
-  let tasks = data.inbox || MOCK.inbox;
+  const data = (await safeFetchJson("/api/inbox")) || {};
+  // Backend returns {tasks: [...]} from the DB. Merge with mock seed
+  // so the UI always has something to show even when DB is empty.
+  const backendTasks = (data.tasks || []).map(t => ({
+    id: "db" + t.id,
+    title: t.title,
+    priority: (t.priority || "medium").charAt(0).toUpperCase() + (t.priority || "medium").slice(1),
+    customer: t.summary || "—",
+    source: t.source || "manual",
+    ago: t.created_at ? new Date(t.created_at).toLocaleDateString() : "—",
+    conf: 90,
+    _real: true,
+    _backend: t,
+  }));
+  let tasks = backendTasks.length ? backendTasks.concat(MOCK.inbox) : MOCK.inbox;
   let activeFilter = "All";
   let activeLevel = 0; // L1
   let selectedTaskId = null;
@@ -810,7 +823,10 @@ function emptyCopilotHTML() {
   `;
 }
 
-function sendCopilot(text) {
+// Persistent history for the current chat session so the LLM has context.
+window._copilotHistory = window._copilotHistory || [];
+
+async function sendCopilot(text) {
   if (!text || !text.trim()) return;
   const body = document.getElementById("copilotBody");
   body.style.justifyContent = "flex-start";
@@ -819,13 +835,65 @@ function sendCopilot(text) {
     body.innerHTML = `<div class="conv-thread" style="display:flex;flex-direction:column;gap:10px;width:100%;max-width:760px;margin:0 auto"></div>`;
   }
   const thread = body.querySelector(".conv-thread");
-  thread.insertAdjacentHTML("beforeend", `<div class="msg user" style="background:var(--bg-subtle);color:var(--text-strong)">${escapeHtml(text)}</div>`);
+
+  // user bubble (CSS in styles.css positions to the right)
+  thread.insertAdjacentHTML("beforeend",
+    `<div class="msg user">${escapeHtml(text)}</div>`);
   document.getElementById("copilotInput").value = "";
-  setTimeout(() => {
-    thread.insertAdjacentHTML("beforeend", `<div class="msg ai" style="background:var(--accent);color:white">Here's what I found regarding "${escapeHtml(text)}". I can walk you through the next steps or take action on your behalf — let me know which.</div>`);
+  body.scrollTop = body.scrollHeight;
+
+  // typing indicator (left side, italic, lower opacity)
+  thread.insertAdjacentHTML("beforeend",
+    `<div class="msg ai typing-bubble" id="typingBubble">… thinking</div>`);
+  body.scrollTop = body.scrollHeight;
+
+  try {
+    const resp = await fetch("/api/copilot/chat", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: "include",
+      body: JSON.stringify({
+        message: text,
+        history: window._copilotHistory.slice(-20),  // last 10 turns
+      }),
+    });
+    const typing = document.getElementById("typingBubble");
+    if (typing) typing.remove();
+
+    if (!resp.ok) {
+      const err = await resp.json().catch(() => ({}));
+      thread.insertAdjacentHTML("beforeend",
+        `<div class="msg ai" style="background:#FEE2E2;color:#7F1D1D;border-color:#FCA5A5">Error: ${escapeHtml(err.detail || ('HTTP ' + resp.status))}</div>`);
+      return;
+    }
+    const data = await resp.json();
+    const reply = (data.reply || "").trim() || "(no reply)";
+
+    // Render with line breaks preserved
+    thread.insertAdjacentHTML("beforeend",
+      `<div class="msg ai" style="white-space:pre-wrap">${escapeHtml(reply)}</div>`);
     body.scrollTop = body.scrollHeight;
-  }, 500);
+
+    // Persist turn so the LLM keeps context within this chat
+    window._copilotHistory.push({ role: "user", content: text });
+    window._copilotHistory.push({ role: "assistant", content: reply });
+  } catch (e) {
+    const typing = document.getElementById("typingBubble");
+    if (typing) typing.remove();
+    thread.insertAdjacentHTML("beforeend",
+      `<div class="msg ai" style="background:#FEE2E2;color:#7F1D1D">Connection failed: ${escapeHtml(e.message || String(e))}</div>`);
+  }
 }
+
+// Wire the "New Chat" button to reset history
+document.addEventListener("click", (e) => {
+  if (e.target.closest("#newChatBtn")) {
+    window._copilotHistory = [];
+    const body = document.getElementById("copilotBody");
+    if (body) body.innerHTML = emptyCopilotHTML();
+    initCopilot();  // re-render action cards + rail
+  }
+});
 
 function escapeHtml(s) {
   return String(s).replace(/[&<>"']/g, c => ({ "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;", "'":"&#39;" }[c]));
