@@ -1,0 +1,152 @@
+[
+  {
+    "name": "1.1 Page loads",
+    "ok": true,
+    "detail": ""
+  },
+  {
+    "name": "1.2 Sidebar renders",
+    "ok": true,
+    "detail": ""
+  },
+  {
+    "name": "1.3 User badge visible",
+    "ok": true,
+    "detail": ""
+  },
+  {
+    "name": "2.1 Dashboard loads",
+    "ok": true,
+    "detail": ""
+  },
+  {
+    "name": "2.2 KPI tiles render (expect 10)",
+    "ok": true,
+    "detail": "got 10"
+  },
+  {
+    "name": "2.3 Retention center",
+    "ok": true,
+    "detail": ""
+  },
+  {
+    "name": "2.4 Live Negotiations",
+    "ok": true,
+    "detail": ""
+  },
+  {
+    "name": "2.5 Negotiation cards render",
+    "ok": true,
+    "detail": "2 cards"
+  },
+  {
+    "name": "2.6 Refresh button clickable",
+    "ok": true,
+    "detail": ""
+  },
+  {
+    "name": "3.1 Inbox loads",
+    "ok": true,
+    "detail": ""
+  },
+  {
+    "name": "3.2 Autonomy slider visible",
+    "ok": true,
+    "detail": ""
+  },
+  {
+    "name": "3.3 Task queue has tasks",
+    "ok": true,
+    "detail": "8 tasks"
+  },
+  {
+    "name": "3.4 Task detail pane populates",
+    "ok": true,
+    "detail": ""
+  },
+  {
+    "name": "3.5 AI Strategy section",
+    "ok": true,
+    "detail": ""
+  },
+  {
+    "name": "3.6 Steps list",
+    "ok": true,
+    "detail": "6 steps"
+  },
+  {
+    "name": "3.7 Conversation thread",
+    "ok": true,
+    "detail": ""
+  },
+  {
+    "name": "3.8 Recommended action callout",
+    "ok": true,
+    "detail": ""
+  },
+  {
+    "name": "3.9 Action buttons render",
+    "ok": true,
+    "detail": "7 buttons"
+  },
+  {
+    "name": "3.10.run 'run' button executed",
+    "ok": true,
+    "detail": ""
+  },
+  {
+    "name": "3.10.pause 'pause' button executed",
+    "ok": true,
+    "detail": ""
+  },
+  {
+    "name": "3.10.resume 'resume' button executed",
+    "ok": true,
+    "detail": ""
+  },
+  {
+    "name": "3.10.retry 'retry' button executed",
+    "ok": true,
+    "detail": ""
+  },
+  {
+    "name": "3.10.approve 'approve' button executed",
+    "ok": true,
+    "detail": ""
+  },
+  {
+    "name": "5.1 Copilot loads",
+    "ok": true,
+    "detail": ""
+  },
+  {
+    "name": "5.2 Suggested actions render",
+    "ok": true,
+    "detail": ""
+  },
+  {
+    "name": "6.1 Logs page loads",
+    "ok": true,
+    "detail": ""
+  },
+  {
+    "name": "6.2 Log table or list visible",
+    "ok": true,
+    "detail": ""
+  },
+  {
+    "name": "7.1 Connectors page loads",
+    "ok": true,
+    "detail": ""
+  },
+  {
+    "name": "7.2 Provider cards render",
+    "ok": false,
+    "detail": "0 cards"
+  },
+  {
+    "name": "8.1 Settings page loads",
+    "ok": true,
+    "detail": ""
+  }
+]

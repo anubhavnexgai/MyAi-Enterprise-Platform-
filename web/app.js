@@ -168,30 +168,30 @@ const MOCK = {
 
   copilotRecents: [
     { group: "Today", items: [
-      { title: "Refund flow for declined POS", time: "10:42" },
-      { title: "Explain SCA exemption rules", time: "09:18" },
+      { title: "Draft sprint update for Priti", time: "10:42" },
+      { title: "Inbox triage — top 5 unread", time: "09:18" },
     ]},
     { group: "Yesterday", items: [
-      { title: "Draft response to fraud claim", time: "17:55" },
-      { title: "Loan eligibility quick check", time: "14:02" },
-      { title: "Card replacement timeline", time: "11:30" },
+      { title: "Calendar — move 1:1 to Wednesday", time: "17:55" },
+      { title: "Summarize PRD doc from Drive", time: "14:02" },
+      { title: "Reminder set: code review at 3pm", time: "11:30" },
     ]},
     { group: "Earlier this week", items: [
-      { title: "Mortgage rate comparison", time: "Mon" },
-      { title: "Customer churn-risk scoring", time: "Mon" },
-      { title: "AML escalation playbook", time: "Sun" },
+      { title: "Plan Q3 sprint priorities", time: "Mon" },
+      { title: "Compare two design proposals", time: "Mon" },
+      { title: "Research AI agent frameworks", time: "Sun" },
     ]},
   ],
 
   copilotActions: [
-    { icon: "account_balance_wallet", t: "Account balance",    d: "Get the latest balance" },
-    { icon: "send_money",             t: "Transfer money",      d: "Send to a payee or account" },
-    { icon: "credit_card_off",        t: "Block lost card",     d: "Freeze and reissue" },
-    { icon: "percent",                t: "Loan rates",          d: "Compare current rates" },
-    { icon: "home",                   t: "Update address",      d: "Change registered address" },
-    { icon: "report",                 t: "Dispute transaction", d: "Open a chargeback" },
-    { icon: "credit_score",           t: "Credit card limit",   d: "Request a limit change" },
-    { icon: "support_agent",          t: "Talk to a banker",    d: "Hand off to a human" },
+    { icon: "mail",          t: "Summarize my inbox",  d: "Top emails that need a reply" },
+    { icon: "event",         t: "What's on my calendar?", d: "Today's meetings + free time" },
+    { icon: "edit_note",     t: "Draft a status update", d: "From your recent work" },
+    { icon: "search",        t: "Search my Drive",      d: "Find a file or doc" },
+    { icon: "alarm",         t: "Set a reminder",       d: "Remind me later about X" },
+    { icon: "task_alt",      t: "Run a task overnight", d: "Background goal — wake to results" },
+    { icon: "image",         t: "Read my screen",       d: "Analyze a screenshot" },
+    { icon: "tips_and_updates", t: "Plan my day",       d: "Help me prioritize" },
   ],
 };
 
@@ -226,6 +226,14 @@ async function loadFragment(route) {
     const r = await fetch(path);
     if (!r.ok) throw new Error("fragment 404");
     view.innerHTML = await r.text();
+    // Inline <script> tags inserted via innerHTML do not execute automatically.
+    // Re-create them so per-page bootstrap (connectors, settings, etc.) runs.
+    view.querySelectorAll("script").forEach(old => {
+      const s = document.createElement("script");
+      for (const a of old.attributes) s.setAttribute(a.name, a.value);
+      s.text = old.text;
+      old.parentNode.replaceChild(s, old);
+    });
   } catch {
     view.innerHTML = `<div class="card card-pad">
       <h2 class="card-title">Page not available offline</h2>
@@ -311,14 +319,14 @@ async function initDashboard() {
   const subWrap = document.getElementById("retentionSubstats");
   if (subWrap) {
     const cells = [
-      [r.active, "Active"],
-      [r.wonWeek, "Won (Week)"],
-      [r.lostWeek, "Lost (Week)"],
-      [r.saveRate, "Save Rate"],
-      [r.avgDiscount, "Avg Discount"],
-      [r.avgLevels, "Avg Levels"],
-      [r.competitors, "Competitors"],
-      [r.escalations, "Escalations"],
+      [r.active, "Active threads"],
+      [r.wonWeek, "Resolved (Week)"],
+      [r.lostWeek, "Slipped"],
+      [r.saveRate, "On-time"],
+      [r.avgDiscount, "Avg response"],
+      [r.avgLevels, "Avg actions"],
+      [r.competitors, "Pending review"],
+      [r.escalations, "Waiting on you"],
     ];
     subWrap.innerHTML = cells.map(([v, l]) => `
       <div class="substat">
@@ -336,28 +344,28 @@ async function initDashboard() {
       <div class="neg-card" data-id="${n.id}">
         <div class="neg-head">
           <span class="neg-name">${n.name}</span>
-          <span class="pill pill-purple">Level ${n.level}</span>
-          <span class="pill">vs ${n.competitor}</span>
-          <span class="pill ${n.status === "NEEDS APPROVAL" ? "pill-orange" : n.status === "AT RISK" ? "pill-red" : "pill-blue"}">${n.status}</span>
+          <span class="pill pill-purple">Step ${n.level}</span>
+          <span class="pill">${n.competitor}</span>
+          <span class="pill ${n.status === "NEEDS REPLY" ? "pill-orange" : n.status === "WAITING ON YOU" ? "pill-red" : "pill-blue"}">${n.status}</span>
         </div>
-        <div class="neg-sub">${n.product} - ${n.fee} - ${n.tenure} tenure</div>
+        <div class="neg-sub">${n.product} · ${n.fee} · ${n.tenure}</div>
         <div class="progress"><span style="width:${n.progress}%"></span></div>
         <div class="progress-row">
-          <span>Final Incentive</span>
+          <span>Progress</span>
           <span><b>${n.confidence}%</b> Confidence</span>
         </div>
         <div class="chips">${n.incentives.map(i => `<span class="chip">${i}</span>`).join("")}</div>
         <div class="ai-think">
-          <b>AI Thinking</b>${n.thinking}
+          <b>Assistant says</b>${n.thinking}
         </div>
         <div class="neg-actions">
           <button class="btn btn-success" data-act="approve">
             <span class="material-symbols-rounded">check</span>
-            Approve ${n.incentives[0]}
+            ${n.recommended_action || "Approve"}
           </button>
           <button class="btn btn-primary" data-act="takeover">
-            <span class="material-symbols-rounded">support_agent</span>
-            Take Over
+            <span class="material-symbols-rounded">edit</span>
+            I'll handle it
           </button>
         </div>
       </div>
@@ -970,8 +978,11 @@ function initials(name) {
    Connectors / Settings (stubs)
    ========================================================= */
 function initConnectors() {
+  // The connectors.html fragment has its own inline script that calls /api/connectors
+  // and renders into #conn-grid. We no longer render mock data here.
   const grid = document.getElementById("connectorGrid");
   if (!grid) return;
+  // legacy mock path (only fires if some old fragment still uses #connectorGrid)
   const items = [
     { name: "Salesforce CRM", status: "Connected", ago: "synced 2m ago" },
     { name: "Twilio Voice",   status: "Connected", ago: "synced 6m ago" },

@@ -1,0 +1,132 @@
+[
+  {
+    "name": "App loads",
+    "ok": true,
+    "detail": ""
+  },
+  {
+    "name": "Title says 'My Workspace'",
+    "ok": true,
+    "detail": ""
+  },
+  {
+    "name": "KPI: UNREAD EMAILS",
+    "ok": true,
+    "detail": ""
+  },
+  {
+    "name": "KPI: MEETINGS TODAY",
+    "ok": true,
+    "detail": ""
+  },
+  {
+    "name": "Today's Focus card",
+    "ok": true,
+    "detail": ""
+  },
+  {
+    "name": "Active threads section",
+    "ok": true,
+    "detail": ""
+  },
+  {
+    "name": "Thread: Priti Padhy",
+    "ok": true,
+    "detail": ""
+  },
+  {
+    "name": "Thread: Calendar conflict",
+    "ok": true,
+    "detail": ""
+  },
+  {
+    "name": "No 'James Whitfield'",
+    "ok": true,
+    "detail": ""
+  },
+  {
+    "name": "No 'Retention Command Center'",
+    "ok": true,
+    "detail": ""
+  },
+  {
+    "name": "Inbox loads",
+    "ok": true,
+    "detail": ""
+  },
+  {
+    "name": "Autonomy slider",
+    "ok": true,
+    "detail": ""
+  },
+  {
+    "name": "Tasks present",
+    "ok": true,
+    "detail": ""
+  },
+  {
+    "name": "Detail pane: AI Strategy",
+    "ok": true,
+    "detail": ""
+  },
+  {
+    "name": "Steps render",
+    "ok": true,
+    "detail": ""
+  },
+  {
+    "name": "Conversation visible",
+    "ok": true,
+    "detail": ""
+  },
+  {
+    "name": "Action buttons (7)",
+    "ok": true,
+    "detail": ""
+  },
+  {
+    "name": "Copilot loads",
+    "ok": true,
+    "detail": ""
+  },
+  {
+    "name": "'Summarize my inbox' card",
+    "ok": true,
+    "detail": ""
+  },
+  {
+    "name": "'Run a task overnight' card",
+    "ok": true,
+    "detail": ""
+  },
+  {
+    "name": "No 'Account balance' card",
+    "ok": true,
+    "detail": ""
+  },
+  {
+    "name": "Logs page loads",
+    "ok": true,
+    "detail": ""
+  },
+  {
+    "name": "Connector cards render",
+    "ok": true,
+    "detail": "6 cards"
+  },
+  {
+    "name": "Gmail card visible",
+    "ok": true,
+    "detail": ""
+  },
+  {
+    "name": "Calendar card visible",
+    "ok": true,
+    "detail": ""
+  },
+  {
+    "name": "Settings page loads",
+    "ok": true,
+    "detail": ""
+  }
+]

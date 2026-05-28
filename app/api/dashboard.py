@@ -23,54 +23,69 @@ async def dashboard_summary(
        retention: object with active/wonWeek/lostWeek/saveRate/...
        negotiations: list of customer cards with progress/incentives/conversation
     """
-    # KPIs for the top tile row — 10 tiles as in the inspiration screens.
-    # When real harvester data is wired in, swap these constants for queries
-    # scoped to (tenant_id=user.tenant_id, creator_id=user.sub).
+    # Personal productivity KPIs — for THIS employee's own day.
+    # Real numbers will come from connectors (Gmail/Calendar/Drive/Slack)
+    # plus the user's own task & goal records, all scoped to user_id.
     kpis = [
-        {"label": "REQUESTS TODAY", "value": "20"},
-        {"label": "AVG RESOLUTION", "value": "16.5m"},
-        {"label": "SLA COMPLIANCE", "value": "94%"},
-        {"label": "AI AUTO-RESOLVE", "value": "55%"},
-        {"label": "PENDING REVIEW", "value": "9", "tone": "warn"},
-        {"label": "ESCALATED TODAY", "value": "4"},
-        {"label": "FRAUD ALERTS TODAY", "value": "4", "tone": "alert"},
-        {"label": "PROACTIVE ALERTS", "value": "0"},
-        {"label": "CHURN RISK CUSTOMERS", "value": "0"},
-        {"label": "CUSTOMERS SAVED", "value": "0"},
+        {"label": "UNREAD EMAILS", "value": "12"},
+        {"label": "NEEDS REPLY", "value": "4", "tone": "warn"},
+        {"label": "MEETINGS TODAY", "value": "5"},
+        {"label": "FOCUS HOURS LEFT", "value": "3.2h"},
+        {"label": "OPEN TASKS", "value": "8"},
+        {"label": "DUE THIS WEEK", "value": "3"},
+        {"label": "DRAFTS WAITING", "value": "2", "tone": "warn"},
+        {"label": "FILES TO REVIEW", "value": "1"},
+        {"label": "ASSISTANT ACTIONS", "value": "14"},
+        {"label": "TIME SAVED", "value": "1h 45m"},
     ]
 
-    retention = {
-        "active": 3, "wonWeek": 11, "lostWeek": 2,
-        "saveRate": "84%", "avgDiscount": "10%", "avgLevels": "3.4",
-        "competitors": 3, "escalations": 1,
+    # Sub-stats for the "Today's Focus" card (re-uses the retention slot
+    # the frontend already renders; semantic mapping is the rename).
+    focus = {
+        "active": 3,           # Active threads
+        "wonWeek": 8,          # Items resolved this week
+        "lostWeek": 0,         # Items that slipped
+        "saveRate": "94%",     # On-time response rate
+        "avgDiscount": "1.4h", # Avg response time
+        "avgLevels": "5",      # Avg actions per task
+        "competitors": "—",
+        "escalations": 1,      # Things waiting on you
     }
 
-    negotiations = [
+    threads = [
         {
-            "id": "OB-RET-1001",
-            "name": "James Whitfield", "level": 5, "competitor": "MONZO",
-            "status": "NEEDS APPROVAL",
-            "product": "Premier Current Account", "fee": "£25/mo", "tenure": "54 months",
-            "progress": 84, "confidence": 62,
-            "incentives": ["20% discount", "12-month fee waiver", "GBP 100 retention credit", "1.5% cashback boost"],
-            "thinking": "Customer cites the Monzo switch bonus and zero fee. Value framing alone will not hold; recommend the fee waiver plus matched bonus, and escalate as the ask exceeds my discount authority.",
-            "recommended_action": "Approve 12-month fee waiver + GBP 150 matched switch bonus",
+            "id": "TH-1001",
+            "name": "Priti Padhy",
+            "level": 3,
+            "competitor": "Sprint review",
+            "status": "NEEDS REPLY",
+            "product": "Quick summary of MyAi sprint outcomes",
+            "fee": "2 hrs ago",
+            "tenure": "high priority",
+            "progress": 60,
+            "confidence": 88,
+            "incentives": ["Draft ready", "3 bullet summary", "Suggested follow-ups"],
+            "thinking": "Priti asked for sprint outcomes by EOD. I drafted a 3-bullet summary from your standups and PRs covering Life-Harness, the welcome flow, and Docker support. Suggest you skim and send.",
+            "recommended_action": "Approve draft + send",
             "conversation": [
-                {"role": "customer", "name": "James Whitfield", "text": "I have been with you years but Monzo is offering no fee and 150 pounds to switch."},
-                {"role": "ai", "text": "I hear you, and I appreciate your loyalty over the past four and a half years. Let me see what I can do to keep your banking with us."},
-                {"role": "customer", "name": "James Whitfield", "text": "It would need to beat what they are offering."},
-                {"role": "ai", "text": "I can waive your monthly fee for 12 months and add a retention credit — let me confirm the bonus match with a manager."},
+                {"role": "customer", "name": "Priti Padhy", "text": "Can you send me a quick summary of the MyAi sprint outcomes before EOD?"},
+                {"role": "ai", "text": "Drafted a 3-bullet summary from your standups: 1) Life-Harness integration (60→100% tool accuracy), 2) Welcome flow + Docker for new users, 3) Tasks page with action buttons. Want me to send?"},
             ],
         },
         {
-            "id": "OB-RET-1002",
-            "name": "Emma Richardson", "level": 4, "competitor": "Starling",
-            "status": "AT RISK",
-            "product": "Platinum Savings", "fee": "£0/mo", "tenure": "28 months",
-            "progress": 62, "confidence": 81,
-            "incentives": ["+0.25% APY boost", "Skip 1 month fee", "Free overdraft buffer"],
-            "thinking": "Rate-driven churn signal. Starling 4.4% beats our 4.1%. Try APY boost + frame multi-product loyalty bonuses.",
-            "recommended_action": "Offer +0.25% APY for 6 months + cross-sell loyalty program",
+            "id": "TH-1002",
+            "name": "Calendar conflict",
+            "level": 2,
+            "competitor": "Tomorrow 2pm",
+            "status": "WAITING ON YOU",
+            "product": "Architecture review vs 1:1 with Sarah",
+            "fee": "tomorrow",
+            "tenure": "scheduling",
+            "progress": 50,
+            "confidence": 92,
+            "incentives": ["Move 1:1 to Wed 3pm", "Skip architecture review", "Send delegate"],
+            "thinking": "The architecture review is recurring and well-attended; your 1:1 with Sarah is monthly and you usually do strategic planning there. Sarah's calendar is free Wed 3pm — suggest moving.",
+            "recommended_action": "Move 1:1 with Sarah to Wed 3pm",
             "conversation": [],
         },
     ]
@@ -78,8 +93,8 @@ async def dashboard_summary(
     return {
         "scope": {"tenant_id": user.tenant_id, "user_id": user.sub},
         "kpis": kpis,
-        "retention": retention,
-        "negotiations": negotiations,
+        "retention": focus,        # template key kept; content is now "Today's Focus"
+        "negotiations": threads,   # template key kept; content is now "Active threads"
     }
 
 
