@@ -1,7 +1,7 @@
 <div class="page-header">
   <div>
     <h1 class="page-title">Settings</h1>
-    <div class="page-subtitle">Workspace preferences and policies</div>
+    <div class="page-subtitle">Workspace, preferences and what MyAi can do</div>
   </div>
 </div>
 
@@ -14,52 +14,119 @@
     </div>
     <div>
       <div class="kpi-label" style="margin-bottom:4px">DEFAULT TIME ZONE</div>
-      <select class="select" style="width:100%">
-        <option>Europe/London</option>
-        <option>America/New_York</option>
-        <option>Asia/Singapore</option>
+      <select class="select" style="width:100%" id="settingsTz">
+        <option value="Asia/Kolkata">Asia/Kolkata (IST)</option>
+        <option value="Europe/London">Europe/London (GMT/BST)</option>
+        <option value="America/New_York">America/New_York (ET)</option>
+        <option value="America/Los_Angeles">America/Los_Angeles (PT)</option>
+        <option value="Asia/Singapore">Asia/Singapore (SGT)</option>
+        <option value="Asia/Dubai">Asia/Dubai (GST)</option>
+        <option value="Europe/Berlin">Europe/Berlin (CET)</option>
+        <option value="Australia/Sydney">Australia/Sydney (AEDT)</option>
       </select>
     </div>
   </div>
 </div>
 
 <div class="card card-pad" style="margin-bottom:14px">
-  <h3 class="card-title" style="margin-bottom:12px">AI Policies</h3>
+  <h3 class="card-title" style="margin-bottom:12px">MyAi behaviour</h3>
   <div style="display:flex;flex-direction:column;gap:14px">
     <div style="display:flex;align-items:center;justify-content:space-between">
       <div>
-        <div style="font-weight:600;color:var(--text-strong)">Require approval above 30% discount</div>
-        <div style="font-size:12px;color:var(--text-muted)">Block AI from auto-approving large retention offers</div>
+        <div style="font-weight:600;color:var(--text-strong)">Confirm before sending email</div>
+        <div style="font-size:12px;color:var(--text-muted)">MyAi shows you the draft and waits for your OK</div>
       </div>
-      <div class="switch on"></div>
+      <div class="switch on" data-pref="confirm_send"></div>
     </div>
     <div style="display:flex;align-items:center;justify-content:space-between">
       <div>
-        <div style="font-weight:600;color:var(--text-strong)">Block sensitive PII in logs</div>
-        <div style="font-size:12px;color:var(--text-muted)">Mask card numbers, account numbers, SSN-like values</div>
+        <div style="font-weight:600;color:var(--text-strong)">Confirm before deleting / archiving</div>
+        <div style="font-size:12px;color:var(--text-muted)">Always ask before removing things from your inbox</div>
       </div>
-      <div class="switch on"></div>
+      <div class="switch on" data-pref="confirm_delete"></div>
     </div>
     <div style="display:flex;align-items:center;justify-content:space-between">
       <div>
-        <div style="font-weight:600;color:var(--text-strong)">Human-on-the-loop at L5</div>
-        <div style="font-size:12px;color:var(--text-muted)">Always notify a supervisor on autonomous actions</div>
+        <div style="font-weight:600;color:var(--text-strong)">Surface promotional mail as Low priority</div>
+        <div style="font-size:12px;color:var(--text-muted)">Newsletters, sales and notifications stay out of your way</div>
       </div>
-      <div class="switch on"></div>
+      <div class="switch on" data-pref="suppress_promos"></div>
+    </div>
+    <div style="display:flex;align-items:center;justify-content:space-between">
+      <div>
+        <div style="font-weight:600;color:var(--text-strong)">Auto-summarise long emails</div>
+        <div style="font-size:12px;color:var(--text-muted)">Show a 1-line tl;dr next to anything over 300 words</div>
+      </div>
+      <div class="switch" data-pref="auto_summarise"></div>
+    </div>
+  </div>
+</div>
+
+<div class="card card-pad" style="margin-bottom:14px">
+  <h3 class="card-title" style="margin-bottom:12px">Vision</h3>
+  <div style="display:flex;flex-direction:column;gap:10px">
+    <div id="visionStatus" style="font-size:13px;color:var(--text-muted)">Checking…</div>
+    <div style="font-size:12px;color:var(--text-muted);line-height:1.6">
+      Set <code style="background:#F1F5F9;padding:1px 6px;border-radius:4px">ANTHROPIC_API_KEY</code> in
+      <code style="background:#F1F5F9;padding:1px 6px;border-radius:4px">.env</code> to give MyAi Claude vision.
+      Or run a local model: <code style="background:#F1F5F9;padding:1px 6px;border-radius:4px">ollama pull llava</code> then set
+      <code style="background:#F1F5F9;padding:1px 6px;border-radius:4px">OLLAMA_VISION_MODEL=llava</code>.
     </div>
   </div>
 </div>
 
 <div class="card card-pad">
-  <h3 class="card-title" style="margin-bottom:12px">Danger Zone</h3>
+  <h3 class="card-title" style="margin-bottom:12px">Danger zone</h3>
   <div style="display:flex;justify-content:space-between;align-items:center">
     <div>
-      <div style="font-weight:600;color:var(--text-strong)">Reset workspace</div>
-      <div style="font-size:12px;color:var(--text-muted)">Clears all data — cannot be undone</div>
+      <div style="font-weight:600;color:var(--text-strong)">Reset preferences</div>
+      <div style="font-size:12px;color:var(--text-muted)">Restores autonomy to L1 and clears UI choices. Connectors and emails are unaffected.</div>
     </div>
-    <button class="btn btn-danger">
-      <span class="material-symbols-rounded">delete</span>
+    <button class="btn btn-danger" id="resetPrefsBtn">
+      <span class="material-symbols-rounded">restart_alt</span>
       Reset
     </button>
   </div>
 </div>
+
+<script>
+(async function settingsInit() {
+  // Restore + persist the timezone + toggle switches
+  const prefs = await fetch("/api/preferences", {credentials:"include"}).then(r=>r.json()).catch(()=>null);
+  const data = (prefs && prefs.data) || {};
+  const tz = data.timezone || "Asia/Kolkata";
+  const sel = document.getElementById("settingsTz");
+  if (sel) { sel.value = tz; sel.addEventListener("change", () => {
+    fetch("/api/preferences", {method:"PUT",credentials:"include",headers:{"Content-Type":"application/json"},
+      body: JSON.stringify({data: {timezone: sel.value}})});
+  });}
+
+  document.querySelectorAll("[data-pref]").forEach(sw => {
+    const key = sw.dataset.pref;
+    if (data[key] === true) sw.classList.add("on");
+    if (data[key] === false) sw.classList.remove("on");
+    sw.addEventListener("click", () => {
+      sw.classList.toggle("on");
+      fetch("/api/preferences", {method:"PUT",credentials:"include",headers:{"Content-Type":"application/json"},
+        body: JSON.stringify({data: {[key]: sw.classList.contains("on")}})});
+    });
+  });
+
+  // Vision status probe
+  const v = await fetch("/api/insights/vision", {credentials:"include"}).then(r=>r.json()).catch(()=>null);
+  const el = document.getElementById("visionStatus");
+  if (el) {
+    if (v?.anthropic) el.innerHTML = `<span class="material-symbols-rounded" style="vertical-align:-5px;color:var(--success)">check_circle</span> Anthropic Claude vision is enabled.`;
+    else if (v?.ollama_vision_model) el.innerHTML = `<span class="material-symbols-rounded" style="vertical-align:-5px;color:var(--success)">check_circle</span> Local vision model <b>${v.ollama_vision_model}</b> is enabled.`;
+    else if (v?.ocr_available) el.innerHTML = `<span class="material-symbols-rounded" style="vertical-align:-5px;color:var(--accent)">info</span> Tesseract OCR is available — MyAi can read text from screenshots but won't describe images.`;
+    else el.innerHTML = `<span class="material-symbols-rounded" style="vertical-align:-5px;color:var(--warning)">warning</span> No vision provider configured yet. MyAi will see attached images as text-only.`;
+  }
+
+  document.getElementById("resetPrefsBtn")?.addEventListener("click", () => {
+    if (!confirm("Reset autonomy + UI choices to defaults?")) return;
+    fetch("/api/preferences", {method:"PUT",credentials:"include",headers:{"Content-Type":"application/json"},
+      body: JSON.stringify({autonomy_level: 1, data: {}})})
+      .then(() => location.reload());
+  });
+})();
+</script>

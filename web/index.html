@@ -59,17 +59,17 @@
       </nav>
 
       <div class="sidebar-user" id="userBtn">
-        <div class="avatar">JP</div>
+        <div class="avatar" id="userAvatar">··</div>
         <div class="user-meta">
-          <div class="user-name">Jigar Patel</div>
-          <div class="user-role">Supervisor · NexgAI</div>
+          <div class="user-name" id="userName">Loading…</div>
+          <div class="user-role" id="userRole">—</div>
         </div>
         <span class="material-symbols-rounded" style="color: var(--text-muted)">unfold_more</span>
         <div class="user-menu" id="userMenu">
-          <button><span class="material-symbols-rounded">person</span>Profile</button>
-          <button><span class="material-symbols-rounded">notifications</span>Notifications</button>
-          <button><span class="material-symbols-rounded">help</span>Help &amp; docs</button>
-          <button><span class="material-symbols-rounded">logout</span>Sign out</button>
+          <button data-menu="profile"><span class="material-symbols-rounded">person</span>Profile</button>
+          <button data-menu="notifications"><span class="material-symbols-rounded">notifications</span>Notifications</button>
+          <button data-menu="help"><span class="material-symbols-rounded">help</span>Help &amp; docs</button>
+          <button data-menu="signout"><span class="material-symbols-rounded">logout</span>Sign out</button>
         </div>
       </div>
     </aside>

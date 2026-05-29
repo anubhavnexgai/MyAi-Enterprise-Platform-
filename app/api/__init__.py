@@ -2,7 +2,19 @@
 
 from fastapi import FastAPI
 
-from app.api import auth_routes, connectors, copilot, dashboard, files, inbox, logs
+from app.api import (
+    auth_routes,
+    connectors,
+    copilot,
+    copilot_uploads,
+    dashboard,
+    files,
+    inbox,
+    insights,
+    logs,
+    preferences,
+    threads,
+)
 
 
 def register(app: FastAPI) -> None:
@@ -11,9 +23,13 @@ def register(app: FastAPI) -> None:
     app.include_router(dashboard.router)
     app.include_router(inbox.router)
     app.include_router(copilot.router)
+    app.include_router(copilot_uploads.router)
     app.include_router(connectors.router)
     app.include_router(files.router)
     app.include_router(logs.router)
+    app.include_router(preferences.router)
+    app.include_router(threads.router)
+    app.include_router(insights.router)
 
 
 __all__ = ["register"]

@@ -18,6 +18,9 @@ data/*.db-journal
 data/chroma/
 logs/*.log
 logs/*.jsonl
+server.log
+cookies.txt
+tests/_test_*
 
 .idea/
 .vscode/

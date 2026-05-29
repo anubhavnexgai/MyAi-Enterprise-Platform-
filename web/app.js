@@ -264,8 +264,11 @@ function currentRoute() {
 }
 
 window.addEventListener("hashchange", () => go(currentRoute()));
-window.addEventListener("DOMContentLoaded", () => {
+window.addEventListener("DOMContentLoaded", async () => {
   if (!location.hash) location.hash = "#/dashboard";
+
+  // Hydrate sidebar with the REAL signed-in user, then load route.
+  await hydrateUserSidebar();
   go(currentRoute());
 
   document.getElementById("userBtn").addEventListener("click", e => {
@@ -277,7 +280,110 @@ window.addEventListener("DOMContentLoaded", () => {
       document.getElementById("userMenu")?.classList.remove("open");
     }
   });
+
+  // Wire profile menu actions.
+  document.getElementById("userMenu")?.addEventListener("click", (e) => {
+    const btn = e.target.closest("button[data-menu]");
+    if (!btn) return;
+    const action = btn.dataset.menu;
+    document.getElementById("userMenu").classList.remove("open");
+    switch (action) {
+      case "profile":       location.hash = "#/settings"; break;
+      case "notifications": showNotifications(); break;
+      case "help":          showHelp(); break;
+      case "signout":       signOut(); break;
+    }
+  });
 });
+
+/* ---------- Identity + sidebar hydration ---------- */
+window._me = null;
+
+async function hydrateUserSidebar() {
+  const me = await safeFetchJson("/api/auth/me");
+  // If unauthenticated and not in DEV_MODE, show "Sign in" instead of leaving "Loading…"
+  if (!me) {
+    document.getElementById("userName").textContent = "Sign in";
+    document.getElementById("userRole").textContent = "Not signed in";
+    document.getElementById("userAvatar").textContent = "?";
+    return;
+  }
+
+  // Prefer a connected Gmail account label for the display email
+  let connectedEmail = null;
+  const conns = await safeFetchJson("/api/connectors");
+  if (conns && conns.connectors) {
+    const gm = conns.connectors.find(c => c.provider === "google_gmail" && c.connected);
+    if (gm && gm.account_label) connectedEmail = gm.account_label;
+  }
+
+  const displayName = me.full_name || me.username || me.email || "Me";
+  const displayRole = me.roles && me.roles.length
+    ? me.roles[0].charAt(0).toUpperCase() + me.roles[0].slice(1) + " · " + (me.tenant_id || "")
+    : (me.tenant_id || "");
+
+  window._me = { ...me, connectedEmail };
+  document.getElementById("userName").textContent = displayName;
+  document.getElementById("userRole").textContent = connectedEmail || me.email || displayRole;
+  document.getElementById("userAvatar").textContent =
+    (displayName.split(" ").map(p => p[0]).join("").slice(0, 2) || "M").toUpperCase();
+}
+
+async function signOut() {
+  await fetch("/api/auth/sso/logout", { method: "POST", credentials: "include" }).catch(() => {});
+  // Clear local chat history + reload
+  window._copilotHistory = [];
+  location.reload();
+}
+
+function showHelp() {
+  openModal(`
+    <div class="modal-head">
+      <div><span style="font-weight:700;font-size:17px;color:var(--text-strong)">Help &amp; docs</span></div>
+      <button class="modal-close" data-close><span class="material-symbols-rounded">close</span></button>
+    </div>
+    <div class="modal-body">
+      <p>MyAi is your personal AI assistant for NexgAI. Here's how to get the most out of it:</p>
+      <ul style="margin:12px 0;padding-left:20px;line-height:1.7">
+        <li><b>Dashboard</b> — your KPIs (unread emails, meetings, open tasks) at a glance.</li>
+        <li><b>Inbox</b> — every email/calendar item that needs your attention. Use the autonomy slider to control how much the AI does automatically.</li>
+        <li><b>Copilot</b> — chat with MyAi. Ask things like "summarize my inbox", "what's on my calendar tomorrow", or "draft a status update".</li>
+        <li><b>Connectors</b> — connect Gmail, Google Calendar, Microsoft 365 (Outlook) so MyAi can read your real data.</li>
+        <li><b>Settings</b> — change your preferences, notifications, theme.</li>
+      </ul>
+      <p style="color:var(--text-muted);font-size:13px">Tip: try asking the copilot "what can you do?" — it will list every tool it currently has access to.</p>
+    </div>
+    <div class="modal-foot">
+      <button class="btn" data-close>Close</button>
+    </div>
+  `);
+}
+
+async function showNotifications() {
+  // Use the audit log as the notifications feed
+  const data = await safeFetchJson("/api/logs?limit=20");
+  const items = Array.isArray(data) ? data : (data?.entries || []);
+  const list = items.length ? items.slice(0, 10).map(r => `
+    <div style="padding:10px 12px;border-bottom:1px solid var(--border-dim)">
+      <div style="font-weight:600;color:var(--text-strong);font-size:13px">${escapeHtml(r.event_type || "event")}</div>
+      <div style="font-size:12px;color:var(--text-muted);margin-top:2px">${escapeHtml((r.message || "").slice(0, 140))}</div>
+      <div style="font-size:11px;color:var(--text-muted);margin-top:4px">${new Date(r.created_at).toLocaleString()}</div>
+    </div>
+  `).join("") : `<div style="padding:24px;text-align:center;color:var(--text-muted)">No notifications yet</div>`;
+
+  openModal(`
+    <div class="modal-head">
+      <div><span style="font-weight:700;font-size:17px;color:var(--text-strong)">Notifications</span></div>
+      <button class="modal-close" data-close><span class="material-symbols-rounded">close</span></button>
+    </div>
+    <div class="modal-body" style="padding:0">
+      ${list}
+    </div>
+    <div class="modal-foot">
+      <button class="btn" data-close>Close</button>
+    </div>
+  `);
+}
 
 /* ---------- Modal ---------- */
 function openModal(html) {
@@ -319,7 +425,7 @@ async function initDashboard() {
   const subWrap = document.getElementById("retentionSubstats");
   if (subWrap) {
     const cells = [
-      [r.active, "Active threads"],
+      [r.active, "Active tasks"],
       [r.wonWeek, "Resolved (Week)"],
       [r.lostWeek, "Slipped"],
       [r.saveRate, "On-time"],
@@ -340,52 +446,89 @@ async function initDashboard() {
   const list = document.getElementById("negList");
   const negs = data.negotiations || MOCK.negotiations;
   if (list) {
-    list.innerHTML = negs.map(n => `
+    list.innerHTML = negs.map(n => {
+      const ribbon = _renderCompactLifecycle(n.lifecycle);
+      const isEmpty = n.id === "EMPTY-1";
+      const isTask = String(n.id || "").startsWith("TASK-");
+      const tid = isTask ? n.task_id : null;
+      const statusPill = (s) => (
+        s === "RUNNING" ? "pill-blue" :
+        s === "WAITING ON YOU" ? "pill-red" :
+        s === "QUEUED" ? "pill-orange" :
+        s === "IDLE" ? "pill-teal" :
+        s === "CLEAR" ? "pill-green" : "pill-blue"
+      );
+
+      return `
       <div class="neg-card" data-id="${n.id}">
         <div class="neg-head">
-          <span class="neg-name">${n.name}</span>
-          <span class="pill pill-purple">Step ${n.level}</span>
-          <span class="pill">${n.competitor}</span>
-          <span class="pill ${n.status === "NEEDS REPLY" ? "pill-orange" : n.status === "WAITING ON YOU" ? "pill-red" : "pill-blue"}">${n.status}</span>
+          <span class="neg-name">${escapeHtml(n.name)}</span>
+          <span class="pill pill-purple">${escapeHtml(n.competitor || "")}</span>
+          <span class="pill ${statusPill(n.status)}">${escapeHtml(n.status)}</span>
         </div>
-        <div class="neg-sub">${n.product} · ${n.fee} · ${n.tenure}</div>
-        <div class="progress"><span style="width:${n.progress}%"></span></div>
-        <div class="progress-row">
-          <span>Progress</span>
-          <span><b>${n.confidence}%</b> Confidence</span>
-        </div>
-        <div class="chips">${n.incentives.map(i => `<span class="chip">${i}</span>`).join("")}</div>
+        <div class="neg-sub">${escapeHtml(n.product || "")}</div>
+        ${ribbon}
         <div class="ai-think">
-          <b>Assistant says</b>${n.thinking}
+          <b>Assistant says</b>${escapeHtml(n.thinking || "")}
         </div>
+        ${isEmpty ? "" : `
         <div class="neg-actions">
-          <button class="btn btn-success" data-act="approve">
-            <span class="material-symbols-rounded">check</span>
-            ${n.recommended_action || "Approve"}
-          </button>
-          <button class="btn btn-primary" data-act="takeover">
-            <span class="material-symbols-rounded">edit</span>
-            I'll handle it
-          </button>
-        </div>
+          ${isTask && n.status === "WAITING ON YOU" ? `
+            <button class="btn btn-success" data-act="approve" data-tid="${tid}">
+              <span class="material-symbols-rounded">check</span> Approve
+            </button>
+            <button class="btn btn-danger-outline" data-act="cancel" data-tid="${tid}">
+              <span class="material-symbols-rounded">cancel</span> Cancel
+            </button>
+          ` : isTask && n.status === "RUNNING" ? `
+            <button class="btn" data-act="pause" data-tid="${tid}">
+              <span class="material-symbols-rounded">pause</span> Pause
+            </button>
+            <button class="btn btn-danger-outline" data-act="cancel" data-tid="${tid}">
+              <span class="material-symbols-rounded">cancel</span> Cancel
+            </button>
+          ` : isTask && n.status === "QUEUED" ? `
+            <button class="btn btn-primary" data-act="run" data-tid="${tid}">
+              <span class="material-symbols-rounded">play_arrow</span> Start
+            </button>
+            <button class="btn btn-danger-outline" data-act="cancel" data-tid="${tid}">
+              <span class="material-symbols-rounded">cancel</span> Cancel
+            </button>
+          ` : ""}
+          ${isTask ? `
+            <button class="btn" data-act="open" data-tid="${tid}">
+              <span class="material-symbols-rounded">open_in_new</span> Open
+            </button>
+          ` : ""}
+        </div>`}
       </div>
-    `).join("");
+    `;}).join("");
 
     list.querySelectorAll(".neg-card").forEach(card => {
-      card.addEventListener("click", e => {
-        // ignore button clicks
-        if (e.target.closest("button")) return;
-        const id = card.dataset.id;
-        const n = negs.find(x => x.id === id);
-        if (n) openNegotiationModal(n);
-      });
-      card.querySelectorAll("button").forEach(btn => {
-        btn.addEventListener("click", () => {
+      card.querySelectorAll("button[data-act]").forEach(btn => {
+        btn.addEventListener("click", async (e) => {
+          e.stopPropagation();
           const act = btn.dataset.act;
+          const tid = btn.dataset.tid;
+          if (act === "open") {
+            location.hash = "#/inbox";
+            // Pre-select the task on landing
+            sessionStorage.setItem("inboxOpenTaskId", String(tid));
+            return;
+          }
           btn.disabled = true;
-          btn.innerHTML = act === "approve"
-            ? `<span class="material-symbols-rounded">check_circle</span> Approved`
-            : `<span class="material-symbols-rounded">person</span> Took Over`;
+          btn.style.opacity = "0.5";
+          const endpoint = (act === "approve" || act === "cancel" || act === "run" ||
+                            act === "pause" || act === "resume" || act === "retry")
+            ? `/api/inbox/tasks/${tid}/${act === "cancel" ? "" : act}`
+            : null;
+          if (act === "cancel") {
+            await safeFetchJson(`/api/inbox/tasks/${tid}`, { method: "DELETE" });
+          } else if (endpoint) {
+            await safeFetchJson(endpoint, { method: "POST" });
+          }
+          // Refresh the dashboard
+          initDashboard();
         });
       });
     });
@@ -477,23 +620,72 @@ const LEVELS = [
 
 async function initInbox() {
   const data = (await safeFetchJson("/api/inbox")) || {};
-  // Backend returns {tasks: [...]} from the DB. Merge with mock seed
-  // so the UI always has something to show even when DB is empty.
+  // Backend returns {tasks: [...]} which includes real Gmail + Calendar items
+  // when those connectors are connected.
   const backendTasks = (data.tasks || []).map(t => ({
-    id: "db" + t.id,
+    id: String(t.id),
     title: t.title,
     priority: (t.priority || "medium").charAt(0).toUpperCase() + (t.priority || "medium").slice(1),
-    customer: t.summary || "—",
+    customer: t.from_name || (t.summary || "").split(" — ")[0] || "—",
     source: t.source || "manual",
-    ago: t.created_at ? new Date(t.created_at).toLocaleDateString() : "—",
-    conf: 90,
+    ago: t.created_at ? _relTime(t.created_at) : "—",
     _real: true,
     _backend: t,
   }));
-  let tasks = backendTasks.length ? backendTasks.concat(MOCK.inbox) : MOCK.inbox;
-  let activeFilter = "All";
+  let tasks = backendTasks;
+  let activePrio = "All";
+  let activeSource = "all";
+  let activeAccount = "all"; // all | gmail | outlook
   let activeLevel = 0; // L1
   let selectedTaskId = null;
+
+  // Account switcher (Gmail / Outlook) — always shows both even when one is
+  // disconnected so the user knows the option exists.
+  const conns = await safeFetchJson("/api/connectors");
+  const connByProv = Object.fromEntries((conns?.connectors || []).map(c => [c.provider, c]));
+  const opts = [
+    { key: "all", label: "All", connected: true, account: "Combined" },
+    {
+      key: "gmail", label: "Gmail",
+      connected: !!connByProv["google_gmail"]?.connected,
+      account: connByProv["google_gmail"]?.account_label || "Not connected",
+    },
+    {
+      key: "outlook", label: "Outlook",
+      connected: !!connByProv["microsoft_graph"]?.connected,
+      account: connByProv["microsoft_graph"]?.account_label || "Not connected",
+    },
+  ];
+  const switcher = document.getElementById("accountSwitcher");
+  if (switcher) {
+    switcher.innerHTML = opts.map(o => `
+      <button class="pill-filter ${o.key === activeAccount ? "active" : ""} ${o.connected ? "" : "is-disabled"}"
+              data-acct="${o.key}" title="${escapeHtml(o.account)}"
+              style="${o.connected ? "" : "opacity:.55"}">
+        ${o.label}${o.connected || o.key === "all" ? "" : " <span style='font-size:11px;opacity:.75'>(connect)</span>"}
+      </button>
+    `).join("");
+    switcher.querySelectorAll("[data-acct]").forEach(b => {
+      b.addEventListener("click", () => {
+        const acct = b.dataset.acct;
+        const opt = opts.find(o => o.key === acct);
+        if (acct !== "all" && !opt?.connected) {
+          location.hash = "#/connectors";
+          return;
+        }
+        switcher.querySelectorAll("[data-acct]").forEach(x => x.classList.remove("active"));
+        b.classList.add("active");
+        activeAccount = acct;
+        renderTasks();
+      });
+    });
+  }
+
+  // Load persisted autonomy level
+  const prefs = await safeFetchJson("/api/preferences");
+  if (prefs && Number.isInteger(prefs.autonomy_level)) {
+    activeLevel = Math.max(0, Math.min(4, prefs.autonomy_level - 1));
+  }
 
   // Slider nodes
   const slider = document.getElementById("autonomySlider");
@@ -525,11 +717,10 @@ async function initInbox() {
   }
   renderLevels();
 
-  function setLevel(i) {
+  function setLevel(i, persist = true) {
     activeLevel = i;
     slider.querySelectorAll(".slider-node").forEach((n, idx) => n.classList.toggle("active", idx === i));
     renderLevels();
-    // update badge
     const lv = LEVELS[i];
     const b = document.getElementById("levelBadge");
     if (b) {
@@ -538,17 +729,41 @@ async function initInbox() {
     }
     const banner = document.getElementById("modeBanner");
     if (banner) banner.innerHTML = `<span class="material-symbols-rounded">info</span> Active mode: ${lv.code} — ${lv.title}. ${lv.desc}`;
+
+    if (persist) {
+      // Save autonomy to backend so it survives reloads + drives gating.
+      safeFetchJson("/api/preferences", {
+        method: "PUT",
+        body: { autonomy_level: i + 1 },
+      });
+    }
   }
-  setLevel(activeLevel);
+  setLevel(activeLevel, false);
 
   // Priority filter
   document.querySelectorAll(".pill-filter[data-prio]").forEach(p => {
     p.addEventListener("click", () => {
       document.querySelectorAll(".pill-filter[data-prio]").forEach(x => x.classList.remove("active"));
       p.classList.add("active");
-      activeFilter = p.dataset.prio;
+      activePrio = p.dataset.prio;
       renderTasks();
     });
+  });
+
+  // Source filter
+  document.querySelectorAll(".pill-filter[data-src]").forEach(p => {
+    p.addEventListener("click", () => {
+      document.querySelectorAll(".pill-filter[data-src]").forEach(x => x.classList.remove("active"));
+      p.classList.add("active");
+      activeSource = p.dataset.src;
+      renderTasks();
+    });
+  });
+
+  // Compose with MyAi → copilot with a pre-filled prompt
+  document.getElementById("composeBtn")?.addEventListener("click", () => {
+    sessionStorage.setItem("copilotPrefill", "Help me draft a new email — ask me for the recipient, subject and key points.");
+    location.hash = "#/copilot";
   });
 
   // Render task list
@@ -557,26 +772,48 @@ async function initInbox() {
   const counter = document.getElementById("taskCount");
 
   function renderTasks() {
-    const filtered = activeFilter === "All"
-      ? tasks
-      : tasks.filter(t => t.priority === activeFilter);
-    counter.textContent = `Showing ${filtered.length} of ${tasks.length} tasks`;
-    list.innerHTML = filtered.map(t => `
+    let filtered = tasks;
+    if (activePrio !== "All") filtered = filtered.filter(t => t.priority === activePrio);
+    if (activeSource !== "all") filtered = filtered.filter(t => {
+      if (activeSource === "manual") return !["email", "calendar"].includes(t.source);
+      return t.source === activeSource;
+    });
+    if (activeAccount !== "all") {
+      filtered = filtered.filter(t => (t._backend?.account || "gmail") === activeAccount || t.source !== "email");
+    }
+    counter.textContent = `Showing ${filtered.length} of ${tasks.length}`;
+    if (!filtered.length) {
+      const nothingConnected = data.sources && data.sources.gmail === 0 && data.sources.db === 0;
+      list.innerHTML = `
+        <div class="empty-detail" style="padding:30px 18px;text-align:center">
+          <span class="material-symbols-rounded" style="font-size:42px;color:var(--text-muted)">inbox</span>
+          <h3 style="margin:10px 0 4px">${nothingConnected ? "Connect your inbox" : "All caught up"}</h3>
+          <p style="font-size:13px;color:var(--text-muted)">
+            ${nothingConnected
+              ? `Connect Gmail on the <a href="#/connectors">Connectors</a> page to see real emails here.`
+              : `Nothing waiting on you right now. Anything new will appear automatically.`}
+          </p>
+        </div>`;
+      return;
+    }
+    list.innerHTML = filtered.map(t => {
+      const ico = sourceIcon(t.source);
+      const sourceLabel = ({email:"Email", calendar:"Calendar", manual:"Task", agent:"Agent"})[t.source] || t.source;
+      return `
       <div class="task ${t.id === selectedTaskId ? "active" : ""}" data-id="${t.id}">
         <div class="task-row">
-          <div class="task-title">${t.title}</div>
+          <div class="task-title">${escapeHtml(t.title || "(no subject)")}</div>
           <span class="pill ${t.priority === "Critical" ? "pill-red" : t.priority === "High" ? "pill-orange" : t.priority === "Medium" ? "pill-blue" : "pill-teal"}">${t.priority}</span>
         </div>
         <div class="task-meta">
-          <span class="material-symbols-rounded">person</span>${t.customer}
+          <span class="material-symbols-rounded">${ico}</span>${escapeHtml(t.customer)}
           <span style="opacity:.5">·</span>
-          <span class="material-symbols-rounded">${sourceIcon(t.source)}</span>${t.source}
+          ${sourceLabel}
           <span style="opacity:.5">·</span>
-          ${t.ago} ago
+          ${t.ago}
         </div>
-        <div class="task-conf">AI Confidence ${t.conf}%</div>
       </div>
-    `).join("");
+    `;}).join("");
     list.querySelectorAll(".task").forEach(el => {
       el.addEventListener("click", () => selectTask(el.dataset.id));
     });
@@ -586,14 +823,201 @@ async function initInbox() {
     selectedTaskId = id;
     renderTasks();
     const t = tasks.find(x => x.id === id) || {};
+    const backend = t._backend || {};
 
     // Show loading state
-    detail.innerHTML = `<div class="card-body" style="padding:40px;text-align:center;color:var(--text-muted)">Loading task details…</div>`;
+    detail.innerHTML = `<div class="card-body" style="padding:40px;text-align:center;color:var(--text-muted)">Loading…</div>`;
 
-    // Fetch full detail from backend (numeric ID, fall back to mock)
+    // Branch by source: real email / calendar / DB task
+    if (id.startsWith("gmail:")) {
+      return renderMailDetail(id, t, backend, "gmail");
+    }
+    if (id.startsWith("outlook:")) {
+      return renderMailDetail(id, t, backend, "outlook");
+    }
+    if (id.startsWith("cal:")) {
+      return renderCalendarDetail(id, t, backend);
+    }
+    // DB-backed task
     const numId = parseInt(String(id).replace(/\D/g, ""), 10) || 1;
     const data = await safeFetchJson(`/api/inbox/tasks/${numId}`) || {};
-    const d = { ...t, ...data };
+    const d = { ...t, ...backend, ...data };
+    renderDbTaskDetail(d, numId, t, id);
+  }
+
+  async function renderMailDetail(id, t, backend, kind) {
+    // kind = "gmail" | "outlook"
+    const prefix = kind + ":";
+    const msgId = backend.external_id || id.replace(new RegExp("^" + prefix), "");
+    const apiPath = kind === "gmail" ? "gmail" : "outlook";
+    const externalLinkBase = kind === "gmail"
+      ? `https://mail.google.com/mail/u/0/#inbox/`
+      : `https://outlook.office.com/mail/inbox/id/`;
+    const accountLabel = kind === "gmail" ? "Gmail" : "Outlook";
+
+    const full = await safeFetchJson(`/api/inbox/${apiPath}/${encodeURIComponent(msgId)}`);
+    const subj = (full && full.subject) || backend.title || "(no subject)";
+    const from = (full && full.from) || backend.from_name || "";
+    const date = (full && full.date) || "";
+    const body = (full && (full.body || full.snippet)) || backend.summary || "";
+
+    detail.innerHTML = `
+      <div class="card-head">
+        <div style="min-width:0;flex:1">
+          <h3 class="card-title" style="word-break:break-word">${escapeHtml(subj)}</h3>
+          <div class="card-sub">From ${escapeHtml(from)}${date ? " · " + escapeHtml(date) : ""}</div>
+        </div>
+        <span class="pill pill-blue">${accountLabel}</span>
+      </div>
+      <div class="card-body">
+        <div style="white-space:pre-wrap;line-height:1.55;color:var(--text-strong);font-size:14px;max-height:380px;overflow:auto;padding:10px;background:#FAFAFA;border:1px solid var(--border-dim);border-radius:8px">${escapeHtml(body)}</div>
+
+        <div style="display:flex;gap:8px;margin-top:18px;flex-wrap:wrap">
+          <button class="btn btn-primary" data-em-action="reply">
+            <span class="material-symbols-rounded">smart_toy</span> Reply with MyAi
+          </button>
+          <button class="btn" data-em-action="summarize">
+            <span class="material-symbols-rounded">summarize</span> Summarize
+          </button>
+          <button class="btn" data-em-action="markread">
+            <span class="material-symbols-rounded">mark_email_read</span> Mark read
+          </button>
+          <button class="btn" data-em-action="archive">
+            <span class="material-symbols-rounded">archive</span> Archive
+          </button>
+          <a class="btn" href="${externalLinkBase}${encodeURIComponent(msgId)}" target="_blank" rel="noreferrer">
+            <span class="material-symbols-rounded">open_in_new</span> Open in ${accountLabel}
+          </a>
+        </div>
+      </div>`;
+
+    detail.querySelectorAll("[data-em-action]").forEach(btn => {
+      btn.addEventListener("click", async () => {
+        const a = btn.dataset.emAction;
+        if (a === "reply") {
+          sessionStorage.setItem("copilotPrefill",
+            `Draft a reply to this ${accountLabel} email. Be concise and professional:\n\nFrom: ${from}\nSubject: ${subj}\n\n${(body || "").slice(0, 1200)}`);
+          location.hash = "#/copilot";
+          return;
+        }
+        if (a === "summarize") {
+          sessionStorage.setItem("copilotPrefill",
+            `Summarize this ${accountLabel} email in 3 bullets and tell me if it needs a reply:\n\nFrom: ${from}\nSubject: ${subj}\n\n${(body || "").slice(0, 1200)}`);
+          location.hash = "#/copilot";
+          return;
+        }
+        btn.disabled = true;
+        btn.style.opacity = 0.5;
+        const endpoint = a === "markread" ? "mark-read" : "archive";
+        const res = await safeFetchJson(`/api/inbox/${apiPath}/${encodeURIComponent(msgId)}/${endpoint}`, {
+          method: "POST",
+        });
+        btn.disabled = false; btn.style.opacity = 1;
+        if (res && res.status === "ok") {
+          tasks = tasks.filter(x => x.id !== id);
+          selectedTaskId = null;
+          renderTasks();
+          detail.innerHTML = `<div class="empty-pane"><div>
+            <span class="material-symbols-rounded">check_circle</span>
+            <h3 style="margin:8px 0 4px;color:var(--text-strong)">Done</h3>
+            <div>${a === "markread" ? "Marked as read" : "Archived"} in ${accountLabel}.</div>
+          </div></div>`;
+        } else {
+          alert("That action failed — check Logs for details.");
+        }
+      });
+    });
+  }
+
+  function renderCalendarDetail(id, t, backend) {
+    const title = backend.title || t.title;
+    const summary = backend.summary || t.customer;
+    detail.innerHTML = `
+      <div class="card-head">
+        <div><h3 class="card-title">${escapeHtml(title)}</h3>
+        <div class="card-sub">${escapeHtml(summary)}</div></div>
+        <span class="pill pill-blue">Calendar</span>
+      </div>
+      <div class="card-body">
+        <div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap">
+          <button class="btn btn-primary" data-cal-action="prep">
+            <span class="material-symbols-rounded">smart_toy</span> Prep with MyAi
+          </button>
+          <button class="btn" data-cal-action="reschedule">
+            <span class="material-symbols-rounded">schedule</span> Ask MyAi to reschedule
+          </button>
+          <a class="btn" href="https://calendar.google.com/calendar/u/0/r" target="_blank" rel="noreferrer">
+            <span class="material-symbols-rounded">open_in_new</span> Open in Calendar
+          </a>
+        </div>
+      </div>`;
+    detail.querySelectorAll("[data-cal-action]").forEach(btn => {
+      btn.addEventListener("click", () => {
+        const a = btn.dataset.calAction;
+        const prompt = a === "prep"
+          ? `Help me prep for: ${title}. ${summary}. What should I review and what should I aim to get out of it?`
+          : `I need to reschedule "${title}" (${summary}). Suggest 3 alternative slots that fit my week.`;
+        sessionStorage.setItem("copilotPrefill", prompt);
+        location.hash = "#/copilot";
+      });
+    });
+  }
+
+  function _renderLifecycleRibbon(lc) {
+    if (!lc) return "";
+    const stages = lc.stages || ["open","in_progress","blocked","done"];
+    const idx = lc.stage_index ?? 0;
+    const breached = !!lc.breached;
+    const remaining = lc.remaining?.human || "";
+    const dueStr = lc.due_at ? new Date(lc.due_at).toLocaleString() : "—";
+    const stageLabels = { open: "Open", in_progress: "Running", blocked: "Waiting on you", done: "Done" };
+
+    const dots = stages.map((s, i) => {
+      const reached = i <= idx;
+      const color = reached
+        ? (s === "done" ? "var(--success)" : s === "blocked" ? "var(--warn,#F59E0B)" : "var(--accent)")
+        : "var(--text-muted)";
+      const label = stageLabels[s] || s;
+      const conn = i < stages.length - 1
+        ? `<div style="flex:1;height:2px;background:${i < idx ? color : 'var(--border-dim)'}"></div>`
+        : "";
+      return `
+        <div style="display:flex;align-items:center;gap:0;flex:1">
+          <div style="display:flex;flex-direction:column;align-items:center;min-width:80px">
+            <div style="width:14px;height:14px;border-radius:50%;background:${color};border:2px solid var(--bg-soft);box-shadow:0 0 0 2px ${color}33"></div>
+            <div style="font-size:11px;color:${reached ? 'var(--text-strong)' : 'var(--text-muted)'};margin-top:6px;font-weight:${reached ? '600' : '500'}">${label}</div>
+          </div>
+          ${conn}
+        </div>`;
+    }).join("");
+
+    const dueColor = breached ? "var(--red)" : "var(--text-strong)";
+    const dueLabel = breached
+      ? `<span style="color:${dueColor};font-weight:700">Overdue</span>`
+      : (remaining ? `Due in <b style="color:${dueColor}">${escapeHtml(remaining)}</b>` : `Due <b>${escapeHtml(dueStr)}</b>`);
+
+    const escalations = lc.escalation_count > 0
+      ? `<span class="pill pill-red" style="font-size:11px">${lc.escalation_count} escalation${lc.escalation_count > 1 ? "s" : ""}</span>`
+      : "";
+
+    const assignee = lc.assignee_id && lc.assignee_id !== "me"
+      ? lc.assignee_id : "You";
+
+    return `
+      <div class="muted-card" style="margin-bottom:14px;background:#FAFBFD">
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:10px">
+          <div style="display:flex;align-items:center;gap:8px;font-size:12px;color:var(--text-muted)">
+            <span class="material-symbols-rounded" style="font-size:16px;color:var(--accent)">flag</span>
+            Lifecycle · Assignee: <b style="color:var(--text-strong)">${escapeHtml(assignee)}</b>
+            ${escalations}
+          </div>
+          <div style="font-size:12.5px;color:var(--text-strong)">${dueLabel}</div>
+        </div>
+        <div style="display:flex;align-items:center">${dots}</div>
+      </div>`;
+  }
+
+  function renderDbTaskDetail(d, numId, t, id) {
 
     const stepIcon = (s) => ({
       done: "check_circle", running: "sync", failed: "error",
@@ -616,6 +1040,7 @@ async function initInbox() {
         <span class="pill ${d.priority === "Critical" || t.priority === "Critical" ? "pill-red" : (d.priority === "High" || t.priority === "High") ? "pill-orange" : "pill-blue"}">${d.priority || t.priority || "normal"}</span>
       </div>
       <div class="card-body">
+        ${_renderLifecycleRibbon(d.lifecycle)}
         ${d.ai_strategy ? `
         <div class="muted-card" style="margin-bottom:14px">
           <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
@@ -720,26 +1145,63 @@ async function initInbox() {
 
   renderTasks();
 
-  // Simulate email button
-  document.getElementById("simEmailBtn")?.addEventListener("click", () => {
-    const newT = {
-      id: "t" + (tasks.length + 100),
-      title: "New email — payment delayed",
-      priority: "High",
-      customer: "Auto Test User",
-      source: "email",
-      ago: "now",
-      conf: 70,
-    };
-    tasks = [newT, ...tasks];
-    renderTasks();
-  });
+  // If dashboard linked here with a specific task id, open it
+  const preopen = sessionStorage.getItem("inboxOpenTaskId");
+  if (preopen) {
+    sessionStorage.removeItem("inboxOpenTaskId");
+    const wantId = String(preopen);
+    const match = tasks.find(x => String(x.id) === wantId || String(x._backend?.id) === wantId);
+    if (match) selectTask(match.id);
+  }
 
   document.getElementById("refreshInbox")?.addEventListener("click", () => initInbox());
 }
 
+function _renderCompactLifecycle(lc) {
+  if (!lc || !lc.stages) return "";
+  const stages = lc.stages;
+  const idx = lc.stage_index ?? 0;
+  const breached = !!lc.breached;
+  const remaining = lc.remaining?.human || "";
+  const escCount = lc.escalation_count || 0;
+
+  const dots = stages.map((s, i) => {
+    const reached = i <= idx;
+    const color = reached
+      ? (s === "done" ? "var(--success)" : s === "blocked" ? "#F59E0B" : "var(--accent)")
+      : "var(--border)";
+    return `<div title="${s}" style="width:8px;height:8px;border-radius:50%;background:${color};flex-shrink:0"></div>`;
+  }).join(`<div style="flex:1;height:1.5px;background:var(--border-dim);margin:0 4px;max-width:60px"></div>`);
+
+  const dueLabel = breached
+    ? `<span style="color:var(--red);font-weight:700">Overdue · ${escCount > 0 ? escCount + ' escalation' + (escCount > 1 ? 's' : '') : ''}</span>`
+    : (remaining ? `Due in <b>${remaining}</b>` : "");
+
+  return `
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:8px 0;border-top:1px solid var(--border-dim);margin-top:8px">
+      <div style="display:flex;align-items:center;flex:1;max-width:320px">${dots}</div>
+      <div style="font-size:12px;color:var(--text-muted)">${dueLabel}</div>
+    </div>`;
+}
+
 function sourceIcon(s) {
-  return { phone: "call", email: "mail", chat: "chat", web: "language" }[s] || "help";
+  return {
+    phone: "call", email: "mail", chat: "chat", web: "language",
+    calendar: "event", drive: "description", slack: "tag", github: "code",
+    manual: "edit_note", agent: "smart_toy", rule: "rule",
+  }[s] || "help";
+}
+
+function _relTime(iso) {
+  if (!iso) return "—";
+  const t = Date.parse(iso);
+  if (Number.isNaN(t)) return iso;
+  const diff = (Date.now() - t) / 1000;
+  if (diff < 60) return "now";
+  if (diff < 3600) return Math.floor(diff / 60) + "m";
+  if (diff < 86400) return Math.floor(diff / 3600) + "h";
+  if (diff < 86400 * 7) return Math.floor(diff / 86400) + "d";
+  return new Date(t).toLocaleDateString();
 }
 function guessCategory(t) {
   if (/card|fraud|block/i.test(t)) return "Card services";
@@ -763,31 +1225,210 @@ function suggestedFor(t) {
 /* =========================================================
    Copilot
    ========================================================= */
-async function initCopilot() {
-  // Build recents
+window._copilotCurrentThreadId = null;
+window._copilotHistory = window._copilotHistory || [];
+
+async function refreshCopilotRail(activeId = null) {
   const rail = document.getElementById("railList");
-  if (rail) {
-    rail.innerHTML = MOCK.copilotRecents.map(g => `
-      <div class="rail-group-title">${g.group}</div>
-      ${g.items.map((it, i) => `
-        <div class="rail-item ${i === 0 && g.group === "Today" ? "active" : ""}">
-          <div>${it.title}</div>
-          <div class="rail-item-time">${it.time}</div>
+  if (!rail) return;
+  const data = await safeFetchJson("/api/threads");
+  const threads = (data && data.threads) || [];
+
+  if (!threads.length) {
+    rail.innerHTML = `<div style="padding:16px;font-size:13px;color:var(--text-muted);text-align:center">
+      No chats yet. Click <b>New Chat</b> to start one.
+    </div>`;
+    return;
+  }
+
+  // Group by Today / Yesterday / Earlier
+  const now = Date.now();
+  const groups = { "Today": [], "Yesterday": [], "Earlier this week": [], "Older": [] };
+  for (const t of threads) {
+    const age = (now - Date.parse(t.updated_at)) / 86400000;
+    if (age < 1)        groups["Today"].push(t);
+    else if (age < 2)   groups["Yesterday"].push(t);
+    else if (age < 7)   groups["Earlier this week"].push(t);
+    else                groups["Older"].push(t);
+  }
+
+  rail.innerHTML = Object.entries(groups)
+    .filter(([_, items]) => items.length)
+    .map(([label, items]) => `
+      <div class="rail-group-title">${label}</div>
+      ${items.map(it => `
+        <div class="rail-item ${activeId === it.id ? "active" : ""}" data-thread="${it.id}">
+          <div>${escapeHtml(it.title || "Untitled")}</div>
+          <div class="rail-item-time">${new Date(it.updated_at).toLocaleTimeString([], {hour:"2-digit",minute:"2-digit"})}</div>
         </div>
       `).join("")}
     `).join("");
-    rail.querySelectorAll(".rail-item").forEach(el => {
-      el.addEventListener("click", () => {
-        rail.querySelectorAll(".rail-item").forEach(x => x.classList.remove("active"));
-        el.classList.add("active");
-      });
-    });
+
+  rail.querySelectorAll(".rail-item").forEach(el => {
+    el.addEventListener("click", () => loadCopilotThread(parseInt(el.dataset.thread, 10)));
+  });
+}
+
+async function loadCopilotThread(threadId) {
+  const data = await safeFetchJson(`/api/threads/${threadId}`);
+  if (!data) return;
+  window._copilotCurrentThreadId = threadId;
+  window._copilotHistory = (data.messages || []).map(m => ({ role: m.role, content: m.content }));
+
+  const body = document.getElementById("copilotBody");
+  if (!body) return;
+
+  // Render messages
+  body.style.justifyContent = "flex-start";
+  body.style.alignItems = "stretch";
+  body.innerHTML = `<div class="conv-thread" style="display:flex;flex-direction:column;gap:10px;width:100%;max-width:760px;margin:0 auto"></div>`;
+  const thread = body.querySelector(".conv-thread");
+  for (const m of data.messages || []) {
+    const cls = m.role === "user" ? "user" : "ai";
+    thread.insertAdjacentHTML("beforeend",
+      `<div class="msg ${cls}" style="white-space:pre-wrap">${escapeHtml(m.content)}</div>`);
+  }
+  body.scrollTop = body.scrollHeight;
+  refreshCopilotRail(threadId);
+}
+
+async function newCopilotThread() {
+  const created = await safeFetchJson("/api/threads", {
+    method: "POST",
+    body: { title: "New chat" },
+  });
+  if (created && created.id) {
+    window._copilotCurrentThreadId = created.id;
+    window._copilotHistory = [];
+    const body = document.getElementById("copilotBody");
+    if (body) body.innerHTML = emptyCopilotHTML();
+    initCopilot();
+    refreshCopilotRail(created.id);
+  }
+}
+
+async function deleteCurrentThread() {
+  if (!window._copilotCurrentThreadId) return;
+  if (!confirm("Delete this chat?")) return;
+  await fetch(`/api/threads/${window._copilotCurrentThreadId}`, {
+    method: "DELETE", credentials: "include",
+  });
+  window._copilotCurrentThreadId = null;
+  window._copilotHistory = [];
+  const body = document.getElementById("copilotBody");
+  if (body) body.innerHTML = emptyCopilotHTML();
+  initCopilot();
+  refreshCopilotRail();
+}
+
+async function renameCurrentThread() {
+  if (!window._copilotCurrentThreadId) return;
+  const next = prompt("Rename chat:");
+  if (!next) return;
+  await safeFetchJson(`/api/threads/${window._copilotCurrentThreadId}`, {
+    method: "PATCH",
+    body: { title: next },
+  });
+  refreshCopilotRail(window._copilotCurrentThreadId);
+}
+
+async function exportCurrentThread() {
+  if (!window._copilotCurrentThreadId) return;
+  const data = await safeFetchJson(`/api/threads/${window._copilotCurrentThreadId}`);
+  if (!data) return;
+  const md = [`# ${data.thread.title}`, ""]
+    .concat((data.messages || []).map(m => `**${m.role}**:\n\n${m.content}\n`))
+    .join("\n");
+  const blob = new Blob([md], { type: "text/markdown" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `${(data.thread.title || "chat").replace(/[^\w-]+/g, "_")}.md`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+async function showCopilotInsights() {
+  const s = await safeFetchJson("/api/insights");
+  const v = (x) => (x === null || x === undefined) ? "—" : x;
+  openModal(`
+    <div class="modal-head">
+      <div><span style="font-weight:700;font-size:17px;color:var(--text-strong)">Copilot insights</span></div>
+      <button class="modal-close" data-close><span class="material-symbols-rounded">close</span></button>
+    </div>
+    <div class="modal-body">
+      <div class="duo-grid" style="grid-template-columns:repeat(2,1fr);gap:12px">
+        <div class="kpi"><div class="kpi-label">ACTIONS TODAY</div><div class="kpi-value">${v(s?.actions_today)}</div></div>
+        <div class="kpi"><div class="kpi-label">ACTIONS THIS WEEK</div><div class="kpi-value">${v(s?.actions_week)}</div></div>
+        <div class="kpi"><div class="kpi-label">CHAT TURNS TODAY</div><div class="kpi-value">${v(s?.chat_messages_today)}</div></div>
+        <div class="kpi"><div class="kpi-label">TIME SAVED</div><div class="kpi-value">${v(s?.time_saved_minutes)} min</div></div>
+        <div class="kpi"><div class="kpi-label">GMAIL UNREAD</div><div class="kpi-value">${v(s?.gmail_unread)}</div></div>
+        <div class="kpi"><div class="kpi-label">GMAIL DRAFTS</div><div class="kpi-value">${v(s?.gmail_drafts)}</div></div>
+      </div>
+      <p style="color:var(--text-muted);font-size:12px;margin-top:14px">Generated ${s ? new Date(s.generated_at).toLocaleString() : "—"}</p>
+    </div>
+    <div class="modal-foot"><button class="btn" data-close>Close</button></div>
+  `);
+}
+
+function showCopilotHistory() {
+  const rail = document.getElementById("railList");
+  // Just scroll/focus the rail — already showing thread history.
+  if (rail) {
+    rail.scrollTop = 0;
+    rail.style.transition = "outline 0.4s";
+    rail.style.outline = "2px solid var(--accent)";
+    setTimeout(() => rail.style.outline = "none", 600);
+  }
+}
+
+function showCopilotMore() {
+  const tid = window._copilotCurrentThreadId;
+  openModal(`
+    <div class="modal-head">
+      <div><span style="font-weight:700;font-size:17px;color:var(--text-strong)">Chat options</span></div>
+      <button class="modal-close" data-close><span class="material-symbols-rounded">close</span></button>
+    </div>
+    <div class="modal-body">
+      <button class="btn" id="moreRename" ${tid?"":"disabled"} style="width:100%;justify-content:flex-start;margin-bottom:8px">
+        <span class="material-symbols-rounded">edit</span> Rename chat</button>
+      <button class="btn" id="moreExport" ${tid?"":"disabled"} style="width:100%;justify-content:flex-start;margin-bottom:8px">
+        <span class="material-symbols-rounded">download</span> Export as Markdown</button>
+      <button class="btn btn-danger-outline" id="moreDelete" ${tid?"":"disabled"} style="width:100%;justify-content:flex-start">
+        <span class="material-symbols-rounded">delete</span> Delete chat</button>
+      ${tid ? "" : `<p style="font-size:12px;color:var(--text-muted);margin-top:10px">Send a message first to create a chat.</p>`}
+    </div>
+    <div class="modal-foot"><button class="btn" data-close>Close</button></div>
+  `);
+  document.getElementById("moreRename")?.addEventListener("click", () => { closeModal(); renameCurrentThread(); });
+  document.getElementById("moreExport")?.addEventListener("click", () => { closeModal(); exportCurrentThread(); });
+  document.getElementById("moreDelete")?.addEventListener("click", () => { closeModal(); deleteCurrentThread(); });
+}
+
+const COPILOT_ACTIONS = [
+  { icon: "mail",          t: "Summarize my inbox",      d: "Top emails that need a reply" },
+  { icon: "event",         t: "What's on my calendar?",  d: "Today's meetings + free time" },
+  { icon: "edit_note",     t: "Draft a status update",   d: "From your recent work" },
+  { icon: "search",        t: "Search my Drive",         d: "Find a file or doc" },
+  { icon: "alarm",         t: "Set a reminder",          d: "Remind me later about X" },
+  { icon: "task_alt",      t: "Run a task overnight",    d: "Background goal — wake to results" },
+  { icon: "image",         t: "Read my screen",          d: "Analyze a screenshot" },
+  { icon: "tips_and_updates", t: "Plan my day",          d: "Help me prioritize" },
+];
+
+async function initCopilot() {
+  await refreshCopilotRail(window._copilotCurrentThreadId);
+
+  // If we came back to the page with an active thread, re-render the messages
+  // so the user sees their chat continued (not an empty welcome screen).
+  if (window._copilotCurrentThreadId) {
+    await loadCopilotThread(window._copilotCurrentThreadId);
   }
 
-  // Suggested action grid
+  // Suggested action grid (only show when no conversation yet)
   const grid = document.getElementById("actionGrid");
   if (grid) {
-    grid.innerHTML = MOCK.copilotActions.map(a => `
+    grid.innerHTML = COPILOT_ACTIONS.map(a => `
       <div class="action-card" data-t="${a.t}">
         <div class="action-icon"><span class="material-symbols-rounded">${a.icon}</span></div>
         <div class="action-text">
@@ -801,33 +1442,243 @@ async function initCopilot() {
     });
   }
 
-  document.getElementById("newChatBtn")?.addEventListener("click", () => {
-    document.getElementById("copilotBody").innerHTML = emptyCopilotHTML();
-    initCopilot();
+  // Wire header buttons
+  document.getElementById("newChatBtn")?.addEventListener("click", newCopilotThread);
+
+  // Page header buttons + chat header buttons (Insights, history, more)
+  document.querySelectorAll(".page-header .btn, .copilot-head .icon-btn").forEach(btn => {
+    // dedupe by label / icon name
+  });
+
+  const insightsBtn = [...document.querySelectorAll(".page-header .btn")]
+    .find(b => /insights/i.test(b.textContent));
+  insightsBtn?.addEventListener("click", showCopilotInsights);
+
+  const headIcons = document.querySelectorAll(".copilot-head .icon-btn");
+  headIcons.forEach(b => {
+    const ico = b.querySelector(".material-symbols-rounded")?.textContent?.trim();
+    if (ico === "history")    b.addEventListener("click", showCopilotHistory);
+    if (ico === "more_horiz") b.addEventListener("click", showCopilotMore);
   });
 
   const input = document.getElementById("copilotInput");
   const sendBtn = document.getElementById("copilotSend");
-  input?.addEventListener("keydown", e => { if (e.key === "Enter") sendCopilot(input.value); });
-  sendBtn?.addEventListener("click", () => sendCopilot(input?.value));
+  if (input && !input.dataset.bound) {
+    input.dataset.bound = "1";
+    input.addEventListener("keydown", e => { if (e.key === "Enter") sendCopilot(input.value); });
+  }
+  if (sendBtn && !sendBtn.dataset.bound) {
+    sendBtn.dataset.bound = "1";
+    sendBtn.addEventListener("click", () => sendCopilot(input?.value));
+  }
+
+  // Attach button → file picker. Idempotent: handlers are bound only once
+  // per element so navigating back to the page doesn't trigger duplicates.
+  const fileInput = document.getElementById("copilotFile");
+  const attachBtn = document.getElementById("copilotAttach");
+  if (attachBtn && !attachBtn.dataset.bound) {
+    attachBtn.dataset.bound = "1";
+    attachBtn.addEventListener("click", () => fileInput?.click());
+  }
+  if (fileInput && !fileInput.dataset.bound) {
+    fileInput.dataset.bound = "1";
+    fileInput.addEventListener("change", async () => {
+      if (!fileInput.files) return;
+      for (const f of fileInput.files) {
+        await uploadCopilotFile(f);
+      }
+      fileInput.value = "";
+    });
+  }
+
+  // Drag-and-drop ANYWHERE on the copilot page. We wire to .copilot-main so
+  // dropping into the chat area, the input row, or the empty welcome state
+  // all work.
+  const dropTarget = document.querySelector(".copilot-main") || document.getElementById("copilotBody");
+  if (dropTarget) {
+    let depth = 0;
+    let overlay = null;
+    const showOverlay = () => {
+      if (overlay) return;
+      overlay = document.createElement("div");
+      overlay.className = "drop-overlay";
+      overlay.innerHTML = `<div><span class="material-symbols-rounded" style="font-size:44px;color:var(--accent)">cloud_upload</span><div style="font-weight:700;color:var(--text-strong);margin-top:8px">Drop to attach</div><div style="font-size:13px;color:var(--text-muted)">Screenshots, PDFs, docs, text</div></div>`;
+      Object.assign(overlay.style, {
+        position: "absolute", inset: "0",
+        background: "rgba(255,255,255,.92)",
+        border: "3px dashed var(--accent)",
+        borderRadius: "12px",
+        display: "flex", alignItems: "center", justifyContent: "center",
+        zIndex: "100", pointerEvents: "none", textAlign: "center",
+      });
+      dropTarget.style.position = "relative";
+      dropTarget.appendChild(overlay);
+    };
+    const hideOverlay = () => {
+      if (overlay) { overlay.remove(); overlay = null; }
+    };
+    dropTarget.addEventListener("dragenter", e => {
+      e.preventDefault(); depth++; showOverlay();
+    });
+    dropTarget.addEventListener("dragover", e => {
+      e.preventDefault();
+      if (e.dataTransfer) e.dataTransfer.dropEffect = "copy";
+    });
+    dropTarget.addEventListener("dragleave", e => {
+      e.preventDefault(); depth = Math.max(0, depth - 1);
+      if (depth === 0) hideOverlay();
+    });
+    dropTarget.addEventListener("drop", async e => {
+      e.preventDefault(); depth = 0; hideOverlay();
+      const files = e.dataTransfer?.files || [];
+      for (const f of files) await uploadCopilotFile(f);
+    });
+  }
+
+  // Paste a screenshot directly with Ctrl+V
+  const pasteHandler = async (e) => {
+    if (location.hash !== "#/copilot") return;
+    const items = e.clipboardData?.items || [];
+    for (const item of items) {
+      if (item.type && item.type.startsWith("image/")) {
+        const file = item.getAsFile();
+        if (file) {
+          // Give it a real-looking name so the LLM sees something useful
+          const named = new File([file], `pasted-${Date.now()}.png`, { type: file.type });
+          await uploadCopilotFile(named);
+        }
+      }
+    }
+  };
+  document.removeEventListener("paste", window._copilotPasteHandler || (() => {}));
+  window._copilotPasteHandler = pasteHandler;
+  document.addEventListener("paste", pasteHandler);
+
+  // Pick up any prefilled prompt from another page (Inbox → "Reply with MyAi" etc.)
+  const prefill = sessionStorage.getItem("copilotPrefill");
+  if (prefill) {
+    sessionStorage.removeItem("copilotPrefill");
+    setTimeout(() => sendCopilot(prefill), 60);
+  }
+}
+
+// Queue of attachments to attach to the next user message
+window._copilotAttachments = window._copilotAttachments || [];
+
+async function uploadCopilotFile(file) {
+  const row = document.getElementById("attachmentRow");
+  const isImage = (file.type || "").startsWith("image/");
+
+  // Build a blob URL for image previews — frees on send.
+  const previewUrl = isImage ? URL.createObjectURL(file) : null;
+
+  // Build the staged pill / thumbnail
+  const stage = document.createElement("div");
+  stage.className = "attach-stage";
+  Object.assign(stage.style, {
+    display: "inline-flex", alignItems: "center", gap: "8px",
+    background: "var(--bg-soft)", border: "1px solid var(--border-dim)",
+    borderRadius: "10px", padding: "6px 10px", maxWidth: "260px",
+  });
+  if (isImage) {
+    stage.innerHTML = `
+      <img src="${previewUrl}" style="width:32px;height:32px;object-fit:cover;border-radius:6px;border:1px solid var(--border-dim)" />
+      <div style="min-width:0;flex:1">
+        <div style="font-size:12.5px;color:var(--text-strong);font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${escapeHtml(file.name)}</div>
+        <div style="font-size:11px;color:var(--text-muted)">Uploading…</div>
+      </div>
+      <span data-rm style="cursor:pointer;opacity:.7;font-size:14px">×</span>
+    `;
+  } else {
+    stage.innerHTML = `
+      <span class="material-symbols-rounded" style="font-size:22px;color:var(--accent)">description</span>
+      <div style="min-width:0;flex:1">
+        <div style="font-size:12.5px;color:var(--text-strong);font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${escapeHtml(file.name)}</div>
+        <div style="font-size:11px;color:var(--text-muted)">Uploading…</div>
+      </div>
+      <span data-rm style="cursor:pointer;opacity:.7;font-size:14px">×</span>
+    `;
+  }
+  if (row) { row.style.display = "flex"; row.appendChild(stage); }
+
+  const fd = new FormData();
+  fd.append("file", file);
+  let data = null;
+  try {
+    const r = await fetch("/api/copilot/upload", {
+      method: "POST", body: fd, credentials: "include",
+    });
+    if (!r.ok) throw new Error("HTTP " + r.status);
+    data = await r.json();
+  } catch (e) {
+    stage.style.borderColor = "var(--red)";
+    stage.querySelector("[data-rm]")?.click?.();
+    return;
+  }
+
+  // Attach the preview info for inline render in the user bubble on send
+  data._previewUrl = previewUrl;
+  data._isImage = isImage;
+
+  const sizeEl = stage.querySelector("div > div:nth-child(2)");
+  if (sizeEl) sizeEl.textContent = `${Math.round(data.size_bytes / 1024)} KB`;
+  window._copilotAttachments.push(data);
+
+  stage.querySelector("[data-rm]").addEventListener("click", () => {
+    if (previewUrl) URL.revokeObjectURL(previewUrl);
+    stage.remove();
+    window._copilotAttachments = window._copilotAttachments.filter(x => x !== data);
+    if (!window._copilotAttachments.length && row) row.style.display = "none";
+  });
+}
+
+function _renderAttachmentChips(atts) {
+  if (!atts || !atts.length) return "";
+  const items = atts.map(a => {
+    if (a._isImage && a._previewUrl) {
+      return `<img src="${a._previewUrl}" alt="${escapeHtml(a.filename)}" style="max-width:280px;max-height:280px;border-radius:10px;border:1px solid var(--border-dim);display:block" />`;
+    }
+    return `<div style="display:inline-flex;align-items:center;gap:8px;background:#fff;border:1px solid var(--border-dim);border-radius:10px;padding:8px 12px;color:var(--text-strong)">
+      <span class="material-symbols-rounded" style="font-size:18px;color:var(--accent)">description</span>
+      <div>
+        <div style="font-size:12.5px;font-weight:600">${escapeHtml(a.filename)}</div>
+        <div style="font-size:11px;color:var(--text-muted)">${Math.round(a.size_bytes/1024)} KB</div>
+      </div>
+    </div>`;
+  }).join("");
+  return `<div style="display:flex;flex-direction:column;gap:6px;margin-top:6px">${items}</div>`;
 }
 
 function emptyCopilotHTML() {
   return `
     <div class="copilot-empty">
       <div class="avatar-lg">M</div>
-      <div class="hi">Hi, I'm Max</div>
+      <div class="hi">Hi, I'm MyAi</div>
       <div class="sub">Your AI Assistant · How can I help you today?</div>
     </div>
     <div class="action-grid" id="actionGrid"></div>
   `;
 }
 
-// Persistent history for the current chat session so the LLM has context.
-window._copilotHistory = window._copilotHistory || [];
-
 async function sendCopilot(text) {
-  if (!text || !text.trim()) return;
+  const atts = window._copilotAttachments || [];
+  const trimmed = (text || "").trim();
+
+  // Allow attachment-only sends. If there's neither text nor attachments, bail.
+  if (!trimmed && !atts.length) return;
+
+  // If the user just dropped a file with no prompt, fall back to a sensible default.
+  let effectiveText = trimmed;
+  if (!trimmed && atts.length) {
+    const hasImage = atts.some(a => a._isImage);
+    const hasDoc = atts.some(a => !a._isImage);
+    effectiveText = hasImage && hasDoc
+      ? "What's in these? Summarise and tell me anything actionable."
+      : hasImage
+        ? "What's in this screenshot? Describe it and flag anything I should act on."
+        : "Read this and give me a tight summary plus next steps.";
+  }
+
   const body = document.getElementById("copilotBody");
   body.style.justifyContent = "flex-start";
   body.style.alignItems = "stretch";
@@ -836,9 +1687,15 @@ async function sendCopilot(text) {
   }
   const thread = body.querySelector(".conv-thread");
 
-  // user bubble (CSS in styles.css positions to the right)
+  // User bubble with optional inline attachments. We keep the previews alive
+  // for the chat lifetime — clicking 'New Chat' clears them via thread reload.
+  const bubbleParts = [];
+  if (trimmed) bubbleParts.push(`<div>${escapeHtml(trimmed)}</div>`);
+  else if (atts.length) bubbleParts.push(`<div style="font-style:italic;opacity:.85">${atts.length === 1 ? "Sent an attachment" : `Sent ${atts.length} attachments`}</div>`);
+  bubbleParts.push(_renderAttachmentChips(atts));
+
   thread.insertAdjacentHTML("beforeend",
-    `<div class="msg user">${escapeHtml(text)}</div>`);
+    `<div class="msg user" style="max-width:80%">${bubbleParts.join("")}</div>`);
   document.getElementById("copilotInput").value = "";
   body.scrollTop = body.scrollHeight;
 
@@ -847,14 +1704,31 @@ async function sendCopilot(text) {
     `<div class="msg ai typing-bubble" id="typingBubble">… thinking</div>`);
   body.scrollTop = body.scrollHeight;
 
+  // Build a history that includes any attached files as a system message
+  const history = window._copilotHistory.slice(-20);
+  if (atts.length) {
+    const ctx = atts.map(a =>
+      `ATTACHED FILE: ${a.filename} (${a.content_type || 'unknown'}, ${a.size_bytes} bytes)\n` +
+      `--- begin extracted content ---\n${a.extracted_text}\n--- end ---`
+    ).join("\n\n");
+    history.push({
+      role: "system",
+      content: "The user has attached the following files for this turn. Read them and use them to answer:\n\n" + ctx,
+    });
+    // Clear the attachment row after sending
+    const row = document.getElementById("attachmentRow");
+    if (row) { row.innerHTML = ""; row.style.display = "none"; }
+    window._copilotAttachments = [];
+  }
+
   try {
     const resp = await fetch("/api/copilot/chat", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       credentials: "include",
       body: JSON.stringify({
-        message: text,
-        history: window._copilotHistory.slice(-20),  // last 10 turns
+        message: effectiveText,
+        history,
       }),
     });
     const typing = document.getElementById("typingBubble");
@@ -875,8 +1749,34 @@ async function sendCopilot(text) {
     body.scrollTop = body.scrollHeight;
 
     // Persist turn so the LLM keeps context within this chat
-    window._copilotHistory.push({ role: "user", content: text });
+    const persistedUser = atts.length
+      ? `${effectiveText}\n\n[Attached: ${atts.map(a => a.filename).join(", ")}]`
+      : effectiveText;
+    window._copilotHistory.push({ role: "user", content: persistedUser });
     window._copilotHistory.push({ role: "assistant", content: reply });
+
+    // Persist to backend thread (create one on first message)
+    try {
+      if (!window._copilotCurrentThreadId) {
+        const created = await safeFetchJson("/api/threads", {
+          method: "POST",
+          body: { title: text.slice(0, 80) },
+        });
+        if (created && created.id) window._copilotCurrentThreadId = created.id;
+      }
+      const tid = window._copilotCurrentThreadId;
+      if (tid) {
+        await safeFetchJson(`/api/threads/${tid}/messages`, {
+          method: "POST",
+          body: { role: "user", content: text },
+        });
+        await safeFetchJson(`/api/threads/${tid}/messages`, {
+          method: "POST",
+          body: { role: "assistant", content: reply },
+        });
+        refreshCopilotRail(tid);
+      }
+    } catch {/* non-fatal */}
   } catch (e) {
     const typing = document.getElementById("typingBubble");
     if (typing) typing.remove();
@@ -885,46 +1785,43 @@ async function sendCopilot(text) {
   }
 }
 
-// Wire the "New Chat" button to reset history
-document.addEventListener("click", (e) => {
-  if (e.target.closest("#newChatBtn")) {
-    window._copilotHistory = [];
-    const body = document.getElementById("copilotBody");
-    if (body) body.innerHTML = emptyCopilotHTML();
-    initCopilot();  // re-render action cards + rail
-  }
-});
+// (New chat is wired inside initCopilot via newCopilotThread)
 
 function escapeHtml(s) {
   return String(s).replace(/[&<>"']/g, c => ({ "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;", "'":"&#39;" }[c]));
 }
 
 /* =========================================================
-   Logs
+   Logs — real audit log only, no synthetic events
    ========================================================= */
-let logState = { paused: false, autoscroll: true, filter: "All", rows: [], ws: null };
+let logState = { paused: false, autoscroll: true, filter: "All", rows: [], timer: null };
 
-const LOG_USERS = ["Jigar Patel", "Sarah M.", "AI Agent", "Daniel O.", "Aisha K.", "System"];
-const LOG_EVENTS = [
-  { type: "info",    text: "LLM query: customer churn classification" },
-  { type: "success", text: "Tool call: send_email (template=retention_offer)" },
-  { type: "success", text: "Auth: user signed in via SSO" },
-  { type: "warn",    text: "Tool call: refund initiated — pending approval" },
-  { type: "error",   text: "Tool call: external API timeout (kyc.verify)" },
-  { type: "info",    text: "LLM query: summarize last 14 days of activity" },
-  { type: "success", text: "Tool call: card_freeze applied" },
-  { type: "info",    text: "WebSocket connected" },
-  { type: "warn",    text: "Rate limit: 80% of LLM budget consumed" },
-  { type: "success", text: "Tool call: update_address completed" },
-];
+function _logType(r) {
+  const ev = r.event_type || "";
+  if (r.severity === "error" || ev.endsWith(".error")) return "error";
+  if (ev.includes("warn"))                              return "warn";
+  if (ev.startsWith("auth.") || ev.endsWith(".login"))  return "info";
+  return "success";
+}
+
+async function fetchRealLogs() {
+  const data = await safeFetchJson("/api/logs?limit=200");
+  if (!Array.isArray(data)) return [];
+  return data.map(r => ({
+    ts: r.created_at ? new Date(r.created_at).toLocaleTimeString([], {hour12:false}) + "." + (Date.parse(r.created_at) % 1000 + "").padStart(3,"0") : "",
+    type: _logType(r),
+    event_type: r.event_type,
+    message: r.message,
+    severity: r.severity,
+    raw: r,
+  }));
+}
 
 async function initLogs() {
   const rows = document.getElementById("logRows");
   if (!rows) return;
 
-  // seed with mock
-  logState.rows = [];
-  for (let i = 0; i < 14; i++) logState.rows.push(genLogRow(i));
+  logState.rows = await fetchRealLogs();
   renderLogs();
 
   // Filter pills
@@ -942,62 +1839,27 @@ async function initLogs() {
     logState.autoscroll = !logState.autoscroll;
     e.currentTarget.classList.toggle("on", logState.autoscroll);
   });
-  // Pause
   document.getElementById("pauseBtn")?.addEventListener("click", e => {
     logState.paused = !logState.paused;
     e.currentTarget.innerHTML = logState.paused
       ? `<span class="material-symbols-rounded">play_arrow</span>Resume`
       : `<span class="material-symbols-rounded">pause</span>Pause`;
   });
-  // Export
   document.getElementById("exportBtn")?.addEventListener("click", () => {
-    const blob = new Blob([JSON.stringify(logState.rows, null, 2)], { type: "application/json" });
+    const blob = new Blob([JSON.stringify(logState.rows.map(r => r.raw), null, 2)], { type: "application/json" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url; a.download = "myai-logs.json"; a.click();
     URL.revokeObjectURL(url);
   });
 
-  // Try websocket; fall back to interval
-  try {
-    const wsUrl = (location.protocol === "https:" ? "wss://" : "ws://") + location.host + "/ws";
-    logState.ws = new WebSocket(wsUrl);
-    logState.ws.onmessage = ev => {
-      if (logState.paused) return;
-      try {
-        const msg = JSON.parse(ev.data);
-        appendLog(msg);
-      } catch {
-        appendLog(genLogRow(Date.now()));
-      }
-    };
-    logState.ws.onerror = () => {/* fall back below */};
-  } catch { /* ignored */ }
-
-  // Synthetic stream as fallback (also useful in static viewing)
-  if (window._myaiLogTimer) clearInterval(window._myaiLogTimer);
-  window._myaiLogTimer = setInterval(() => {
+  // Poll the real audit log every 4 seconds
+  if (logState.timer) clearInterval(logState.timer);
+  logState.timer = setInterval(async () => {
     if (logState.paused) return;
-    appendLog(genLogRow(Date.now()));
-  }, 1800);
-}
-
-function genLogRow(seed) {
-  const e = LOG_EVENTS[Math.floor(Math.random() * LOG_EVENTS.length)];
-  const u = LOG_USERS[Math.floor(Math.random() * LOG_USERS.length)];
-  return {
-    ts: new Date(Date.now() - Math.random() * 600000).toISOString().slice(11, 23),
-    type: e.type,
-    user: u,
-    event: e.text,
-    latency: Math.floor(60 + Math.random() * 800) + "ms",
-  };
-}
-
-function appendLog(row) {
-  logState.rows.unshift(row);
-  if (logState.rows.length > 200) logState.rows.pop();
-  renderLogs(true);
+    logState.rows = await fetchRealLogs();
+    renderLogs(true);
+  }, 4000);
 }
 
 function renderLogs(streaming = false) {
@@ -1005,41 +1867,49 @@ function renderLogs(streaming = false) {
   if (!rows) return;
   const filtered = logState.rows.filter(r => {
     if (logState.filter === "All") return true;
-    if (logState.filter === "Tool Calls") return /Tool call/i.test(r.event);
-    if (logState.filter === "LLM Queries") return /LLM query/i.test(r.event);
+    if (logState.filter === "Tool Calls") return /(gmail|outlook|calendar|drive)/i.test(r.event_type || "");
+    if (logState.filter === "LLM Queries") return /copilot\.chat/i.test(r.event_type || "");
     if (logState.filter === "Errors")     return r.type === "error";
-    if (logState.filter === "Auth Events")return /Auth/i.test(r.event);
+    if (logState.filter === "Auth Events")return /^auth\./i.test(r.event_type || "");
     return true;
   });
 
-  rows.innerHTML = filtered.map((r, i) => {
-    const b = TYPE_BADGES[r.type];
-    return `
-      <div class="log-row ${streaming && i === 0 ? "fade-in" : ""}">
-        <div class="ts">${r.ts}</div>
-        <div><span class="pill ${b.cls}"><span class="material-symbols-rounded" style="font-size:13px">${b.icon}</span>${r.type}</span></div>
-        <div class="user"><div class="avatar">${initials(r.user)}</div><span>${r.user}</span></div>
-        <div class="ev">${r.event}</div>
-        <div class="latency">${r.latency}</div>
-        <div class="stat"><span class="material-symbols-rounded" style="font-size:18px;color:${r.type === "error" ? "var(--red)" : "var(--green)"}">${r.type === "error" ? "error" : "check_circle"}</span></div>
-      </div>
-    `;
-  }).join("");
+  if (!filtered.length) {
+    rows.innerHTML = `<div style="padding:40px;text-align:center;color:var(--text-muted)">
+      No activity yet${logState.filter === "All" ? "" : ` matching "${logState.filter}"`}. Use the copilot or inbox to generate some.
+    </div>`;
+  } else {
+    rows.innerHTML = filtered.map((r, i) => {
+      const b = TYPE_BADGES[r.type] || TYPE_BADGES.info;
+      return `
+        <div class="log-row ${streaming && i === 0 ? "fade-in" : ""}" style="grid-template-columns:160px 100px 1fr 36px">
+          <div class="ts">${escapeHtml(r.ts)}</div>
+          <div><span class="pill ${b.cls}"><span class="material-symbols-rounded" style="font-size:13px">${b.icon}</span>${escapeHtml(r.event_type || r.type)}</span></div>
+          <div class="ev">${escapeHtml(r.message || "")}</div>
+          <div class="stat"><span class="material-symbols-rounded" style="font-size:18px;color:${r.type === "error" ? "var(--red)" : "var(--green)"}">${r.type === "error" ? "error" : "check_circle"}</span></div>
+        </div>
+      `;
+    }).join("");
+  }
 
-  // Side stats
-  const ok = logState.rows.filter(r => r.type !== "error").length;
+  // Side stats — real numbers
   const total = logState.rows.length || 1;
+  const ok = logState.rows.filter(r => r.type !== "error").length;
   const errs = logState.rows.filter(r => r.type === "error").length;
-  document.getElementById("statEpm")?.replaceChildren(Object.assign(document.createElement("span"), { textContent: (logState.rows.length / 5).toFixed(0) }));
+  // Events per minute over last 5 min
+  const now = Date.now();
+  const last5 = logState.rows.filter(r => r.raw?.created_at && (now - Date.parse(r.raw.created_at)) < 5 * 60_000);
+  const epm = Math.round(last5.length / 5);
+  document.getElementById("statEpm")  && (document.getElementById("statEpm").textContent = String(epm));
   document.getElementById("statSuccess") && (document.getElementById("statSuccess").textContent = Math.round((ok / total) * 100) + "%");
   document.getElementById("statErrors")  && (document.getElementById("statErrors").textContent  = String(errs));
-  document.getElementById("statTopTool") && (document.getElementById("statTopTool").textContent = "send_email");
+  // Top event_type
+  const counts = {};
+  logState.rows.forEach(r => { counts[r.event_type || "?"] = (counts[r.event_type || "?"] || 0) + 1; });
+  const top = Object.entries(counts).sort((a,b) => b[1] - a[1])[0]?.[0] || "—";
+  document.getElementById("statTopTool") && (document.getElementById("statTopTool").textContent = top);
 
   if (logState.autoscroll) rows.scrollTop = 0;
-}
-
-function initials(name) {
-  return name.split(" ").map(p => p[0]).join("").slice(0, 2).toUpperCase();
 }
 
 /* =========================================================

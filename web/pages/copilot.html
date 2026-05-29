@@ -29,7 +29,7 @@
       <div style="display:flex;align-items:center;gap:10px">
         <div class="avatar">M</div>
         <div>
-          <div style="font-weight:700;color:var(--text-strong)">Max</div>
+          <div style="font-weight:700;color:var(--text-strong)">MyAi</div>
           <div style="font-size:12px;color:var(--text-muted)">Your AI assistant</div>
         </div>
       </div>
@@ -42,16 +42,18 @@
     <div class="copilot-body" id="copilotBody">
       <div class="copilot-empty">
         <div class="avatar-lg">M</div>
-        <div class="hi">Hi, I'm Max</div>
+        <div class="hi">Hi, I'm MyAi</div>
         <div class="sub">Your AI Assistant · How can I help you today?</div>
       </div>
       <div class="action-grid" id="actionGrid"></div>
     </div>
 
+    <div id="attachmentRow" style="display:none;flex-wrap:wrap;gap:8px;padding:8px 12px 0"></div>
     <div class="copilot-input">
-      <button class="icon-btn" title="Attach"><span class="material-symbols-rounded">add</span></button>
-      <input id="copilotInput" placeholder="Ask anything — try 'summarize my unread emails' or 'what's on my calendar this week?'" />
-      <button class="icon-btn" title="Voice"><span class="material-symbols-rounded">mic</span></button>
+      <input type="file" id="copilotFile" multiple style="display:none" accept=".pdf,.txt,.md,.csv,.json,.yml,.yaml,.docx,.png,.jpg,.jpeg,.webp,.gif" />
+      <button class="icon-btn" id="copilotAttach" title="Attach file or screenshot"><span class="material-symbols-rounded">attach_file</span></button>
+      <input id="copilotInput" placeholder="Ask anything — drop a screenshot, paste a doc, or try 'summarize my unread emails'" />
+      <button class="icon-btn" title="Voice (coming soon)"><span class="material-symbols-rounded">mic</span></button>
       <button class="icon-btn primary" id="copilotSend" title="Send"><span class="material-symbols-rounded">send</span></button>
     </div>
   </section>

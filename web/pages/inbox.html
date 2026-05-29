@@ -1,17 +1,13 @@
 <div class="page-header">
   <div>
-    <h1 class="page-title">Agent Inbox</h1>
-    <div class="page-subtitle">Unified Task Management</div>
+    <h1 class="page-title">Inbox</h1>
+    <div class="page-subtitle">Your emails, meetings and tasks — ranked by what needs your attention</div>
   </div>
   <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-    <span class="pill pill-teal"><span class="dot"></span>Human Agent</span>
-    <button class="btn">
-      <span class="material-symbols-rounded">tips_and_updates</span>
-      NBA Assistant
-    </button>
-    <button class="btn" id="simEmailBtn">
-      <span class="material-symbols-rounded">mark_email_unread</span>
-      Simulate Email
+    <div id="accountSwitcher" style="display:flex;gap:4px;background:var(--bg-soft);padding:4px;border-radius:8px;border:1px solid var(--border-dim)"></div>
+    <button class="btn" id="composeBtn" title="Ask MyAi to draft a new email">
+      <span class="material-symbols-rounded">edit_note</span>
+      Compose with MyAi
     </button>
     <button class="btn btn-primary" id="refreshInbox">
       <span class="material-symbols-rounded">refresh</span>
@@ -20,12 +16,12 @@
   </div>
 </div>
 
-<!-- AI Autonomy Card -->
+<!-- AI Autonomy Card — controls how much the AI does to your inbox -->
 <div class="card autonomy-card">
   <div class="autonomy-head">
     <div>
       <h3 class="card-title">AI Autonomy Level</h3>
-      <div class="card-sub" id="autonomySub">Drag to choose how much the AI does autonomously</div>
+      <div class="card-sub" id="autonomySub">How much should MyAi do on its own?</div>
     </div>
     <span class="pill pill-red" id="levelBadge">L1 — Observe</span>
   </div>
@@ -33,27 +29,27 @@
   <div class="autonomy-levels" id="autonomyLevels"></div>
 </div>
 
-<!-- Filter Row -->
+<!-- Filter Row — by priority and by source -->
 <div class="filter-row">
   <button class="pill-filter active" data-prio="All">All</button>
   <button class="pill-filter" data-prio="Critical">Critical</button>
   <button class="pill-filter" data-prio="High">High</button>
   <button class="pill-filter" data-prio="Medium">Medium</button>
   <button class="pill-filter" data-prio="Low">Low</button>
-  <select class="select">
-    <option>All Teams</option>
-    <option>Card Services</option>
-    <option>Lending</option>
-    <option>Disputes</option>
-    <option>Retention</option>
-  </select>
-  <div style="margin-left:auto;font-size:13px;color:var(--text-muted)" id="taskCount">Showing 0 of 0 tasks</div>
+
+  <span style="margin-left:8px;font-size:12px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.06em">Source</span>
+  <button class="pill-filter active" data-src="all">All</button>
+  <button class="pill-filter" data-src="email"><span class="material-symbols-rounded" style="font-size:14px;vertical-align:-3px;margin-right:3px">mail</span>Email</button>
+  <button class="pill-filter" data-src="calendar"><span class="material-symbols-rounded" style="font-size:14px;vertical-align:-3px;margin-right:3px">event</span>Calendar</button>
+  <button class="pill-filter" data-src="manual"><span class="material-symbols-rounded" style="font-size:14px;vertical-align:-3px;margin-right:3px">edit_note</span>Tasks</button>
+
+  <div style="margin-left:auto;font-size:13px;color:var(--text-muted)" id="taskCount">Showing 0 of 0</div>
 </div>
 
 <!-- Mode Banner -->
 <div class="alert-banner" id="modeBanner">
   <span class="material-symbols-rounded">info</span>
-  Active mode: L1 — Observe. AI surfaces insights only — no actions are being taken on tasks.
+  Active mode: L1 — Observe. AI surfaces insights only — no actions taken.
 </div>
 
 <!-- Split -->
@@ -65,8 +61,8 @@
     <div class="empty-pane">
       <div>
         <span class="material-symbols-rounded">inbox</span>
-        <h3 style="margin:8px 0 4px;color:var(--text-strong)">Select a task</h3>
-        <div>Pick a task on the left to see full details, AI thinking, and suggested actions.</div>
+        <h3 style="margin:8px 0 4px;color:var(--text-strong)">Pick something to act on</h3>
+        <div>Select an email, meeting or task to see details and one-click AI actions.</div>
       </div>
     </div>
   </div>

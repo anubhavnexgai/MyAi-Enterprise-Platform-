@@ -36,15 +36,41 @@ def get_sessionmaker() -> async_sessionmaker[AsyncSession]:
 async def init_database() -> None:
     """Create tables for all registered models on the shared engine.
 
-    Idempotent. Safe to call on every boot. For prod-grade migrations, swap to
-    Alembic; this is fine for local dev + first cloud deploys.
+    Also performs lightweight forward-only column migrations for SQLite.
+    Idempotent. Safe to call on every boot.
     """
     # Importing models registers them on Base.metadata
     from app.storage import models  # noqa: F401
+    from sqlalchemy import text
 
     engine = get_engine()
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+
+        # ---- Lightweight migrations (additive only) ----
+        # Add new InboxTask lifecycle columns if missing.
+        migrations = {
+            "inbox_tasks": [
+                ("due_at",           "DATETIME"),
+                ("sla_minutes",      "INTEGER"),
+                ("assignee_id",      "VARCHAR(128) DEFAULT 'me'"),
+                ("started_at",       "DATETIME"),
+                ("completed_at",     "DATETIME"),
+                ("escalated_at",     "DATETIME"),
+                ("escalation_count", "INTEGER DEFAULT 0"),
+            ],
+        }
+        for table, cols in migrations.items():
+            existing = await conn.execute(text(f"PRAGMA table_info({table})"))
+            existing_names = {r[1] for r in existing.fetchall()}
+            for name, ddl in cols:
+                if name not in existing_names:
+                    try:
+                        await conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {name} {ddl}"))
+                        logger.info("Migration: added %s.%s", table, name)
+                    except Exception as exc:
+                        logger.warning("Migration for %s.%s failed: %s", table, name, exc)
+
     logger.info("Database schema ensured")
 
 

@@ -14,6 +14,12 @@ Run with: ``python -m app.main`` (port 8002 by default).
 
 from __future__ import annotations
 
+# Load .env into os.environ BEFORE anything else imports.
+# Connector code reads os.environ directly, so pydantic-settings caching
+# is not enough on its own.
+from dotenv import load_dotenv  # noqa: E402
+load_dotenv()  # noqa: E402
+
 import logging
 import sys
 from contextlib import asynccontextmanager
@@ -68,10 +74,28 @@ async def lifespan(app: FastAPI):  # pragma: no cover - exercised by manual run
             settings.dev_tenant_id,
         )
 
+    # Start background workers: harvester (Gmail/Outlook/Calendar cache) and
+    # lifecycle ticker (SLA breach + escalation).
+    import asyncio
+    from app.services.harvester_worker import harvester_loop
+    from app.services.lifecycle_ticker import lifecycle_loop
+
+    workers = [
+        asyncio.create_task(harvester_loop(), name="harvester"),
+        asyncio.create_task(lifecycle_loop(), name="lifecycle"),
+    ]
+
     try:
         yield
     finally:
         logger.info("Shutting down...")
+        for w in workers:
+            w.cancel()
+        for w in workers:
+            try:
+                await w
+            except (asyncio.CancelledError, Exception):  # noqa: BLE001
+                pass
         await shutdown_database()
 
 

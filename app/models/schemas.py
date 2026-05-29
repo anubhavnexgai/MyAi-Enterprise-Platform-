@@ -59,12 +59,23 @@ class InboxTaskOut(BaseModel):
     payload: Optional[Dict[str, Any]] = None
     created_at: datetime
     updated_at: datetime
+    # Lifecycle fields
+    due_at: Optional[datetime] = None
+    sla_minutes: Optional[int] = None
+    assignee_id: Optional[str] = "me"
+    started_at: Optional[datetime] = None
+    completed_at: Optional[datetime] = None
+    escalated_at: Optional[datetime] = None
+    escalation_count: int = 0
 
 
 class InboxTaskUpdate(BaseModel):
     status: Optional[str] = None
     priority: Optional[str] = None
     summary: Optional[str] = None
+    due_at: Optional[datetime] = None
+    sla_minutes: Optional[int] = None
+    assignee_id: Optional[str] = None
 
 
 # ----------------------------------------------------------------------------

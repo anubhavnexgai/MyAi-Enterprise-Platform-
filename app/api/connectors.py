@@ -39,8 +39,11 @@ def _current_user(request: Request) -> tuple[str, str]:
     """
     user_obj = getattr(request.state, "user", None)
     if user_obj is not None:
+        # PlatformTokenClaims uses `sub` for the stable user id; fall back to
+        # legacy fields if a different claims type is in use.
         user_id = (
-            getattr(user_obj, "user_id", None)
+            getattr(user_obj, "sub", None)
+            or getattr(user_obj, "user_id", None)
             or getattr(user_obj, "id", None)
             or getattr(user_obj, "email", None)
         )
@@ -61,13 +64,18 @@ def _current_user(request: Request) -> tuple[str, str]:
 # ---------------------------------------------------------------------------
 
 
+_VISIBLE_PROVIDERS = {"google_gmail", "google_calendar", "microsoft_graph"}
+
+
 @router.get("")
 async def list_connectors(request: Request) -> dict[str, Any]:
     """List available connectors with the current user's connection status."""
     user_id, tenant_id = _current_user(request)
     manager = get_connector_manager()
     connections = await manager.list_connections(user_id, tenant_id)
-    return {"user_id": user_id, "tenant_id": tenant_id, "connectors": connections}
+    # Trim to the providers we actively support in the UI.
+    visible = [c for c in connections if c["provider"] in _VISIBLE_PROVIDERS]
+    return {"user_id": user_id, "tenant_id": tenant_id, "connectors": visible}
 
 
 @router.get("/{provider}/connect")
