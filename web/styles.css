@@ -10,8 +10,8 @@
   --bg-subtle: #F3F4F6;
   --bg-hover: #F9FAFB;
 
-  --border: #D3D8E0;
-  --border-strong: #D1D5DB;
+  --border: #E7E9EF;
+  --border-strong: #D7DBE3;
 
   --text: #1F2937;
   --text-strong: #111827;
@@ -36,15 +36,15 @@
   --yellow: #FACC15;
   --yellow-soft: #FEF9C3;
 
-  --shadow-xs: 0 1px 2px rgba(16, 24, 40, 0.04);
-  --shadow-sm: 0 1px 3px rgba(16, 24, 40, 0.06), 0 1px 2px rgba(16, 24, 40, 0.04);
-  --shadow-md: 0 4px 8px rgba(16, 24, 40, 0.06), 0 2px 4px rgba(16, 24, 40, 0.04);
-  --shadow-lg: 0 12px 32px rgba(16, 24, 40, 0.12);
+  --shadow-xs: 0 1px 2px rgba(16, 24, 40, 0.05);
+  --shadow-sm: 0 1px 2px rgba(16, 24, 40, 0.04), 0 4px 12px rgba(16, 24, 40, 0.05);
+  --shadow-md: 0 2px 6px rgba(16, 24, 40, 0.05), 0 10px 24px rgba(16, 24, 40, 0.07);
+  --shadow-lg: 0 16px 44px rgba(16, 24, 40, 0.14);
 
-  --r-sm: 6px;
-  --r: 8px;
-  --r-md: 12px;
-  --r-lg: 16px;
+  --r-sm: 8px;
+  --r: 10px;
+  --r-md: 14px;
+  --r-lg: 18px;
   --r-pill: 999px;
 
   --sidebar-w: 240px;
@@ -124,10 +124,13 @@ button { font-family: inherit; }
   font-weight: 500;
   font-size: 13.5px;
 }
+.nav a { transition: background .14s, color .14s; }
 .nav a:hover { background: var(--bg-subtle); }
 .nav a.active {
   background: var(--accent-softer);
   color: var(--accent-hover);
+  font-weight: 600;
+  box-shadow: inset 2px 0 0 var(--accent);
 }
 .nav a .material-symbols-rounded { font-size: 20px; }
 .nav-label {
@@ -208,11 +211,11 @@ button { font-family: inherit; }
   margin-bottom: 20px;
 }
 .page-title {
-  font-size: 22px;
-  font-weight: 700;
+  font-size: 24px;
+  font-weight: 750;
   color: var(--text-strong);
   margin: 0 0 4px;
-  letter-spacing: -0.01em;
+  letter-spacing: -0.025em;
 }
 .page-subtitle {
   font-size: 13.5px;
@@ -227,18 +230,21 @@ button { font-family: inherit; }
   font-weight: 600;
   border: 1px solid transparent;
   cursor: pointer;
-  transition: background .12s, border-color .12s, color .12s;
+  transition: background .14s, border-color .14s, color .14s, box-shadow .14s, transform .08s;
   background: white;
   color: var(--text);
   border-color: var(--border);
+  box-shadow: var(--shadow-xs);
 }
-.btn:hover { background: var(--bg-hover); }
+.btn:hover { background: var(--bg-hover); border-color: var(--border-strong); }
+.btn:active { transform: translateY(1px); }
 .btn .material-symbols-rounded { font-size: 18px; }
 
 .btn-primary {
   background: var(--accent);
   color: white;
   border-color: var(--accent);
+  box-shadow: 0 1px 2px rgba(8,145,178,.25), 0 4px 12px rgba(8,145,178,.18);
 }
 .btn-primary:hover { background: var(--accent-hover); border-color: var(--accent-hover); }
 
@@ -296,9 +302,9 @@ button { font-family: inherit; }
   background: var(--bg-elev);
   border: 1px solid var(--border);
   border-radius: var(--r-md);
-  box-shadow: var(--shadow-xs);
+  box-shadow: var(--shadow-sm);
 }
-.card-pad { padding: 18px 20px; }
+.card-pad { padding: 20px 22px; }
 .card-head {
   display: flex; align-items: center; justify-content: space-between;
   padding: 14px 18px;
@@ -995,7 +1001,11 @@ button { font-family: inherit; }
 .ws-field textarea { resize:vertical; min-height:120px; }
 .ws-row { display:flex; gap:10px; flex-wrap:wrap; }
 .ws-row .ws-field { flex:1; min-width:140px; }
-.ws-input { border:1px solid var(--border); border-radius:var(--r); padding:8px 10px; font:inherit; color:var(--text); background:var(--bg-elev); }
+.ws-input { border:1px solid var(--border); border-radius:var(--r); padding:9px 11px; font:inherit; color:var(--text); background:var(--bg-elev); transition:border-color .14s, box-shadow .14s; }
+/* Modern focus ring across all form controls */
+.ws-input:focus, .ws-field input:focus, .ws-field textarea:focus, .ws-field select:focus {
+  outline:none; border-color:var(--accent); box-shadow:0 0 0 3px var(--accent-softer);
+}
 .ws-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(220px,1fr)); gap:12px; }
 .ws-tag { display:inline-block; font-size:11px; background:var(--bg-subtle); color:var(--text-muted); border-radius:var(--r-pill); padding:2px 8px; margin-right:4px; }
 .ws-chatlog { flex:1; overflow:auto; display:flex; flex-direction:column; gap:10px; padding:4px; }

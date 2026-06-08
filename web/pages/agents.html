@@ -59,7 +59,8 @@
 </div>
 
 <style>
-.ao-graph{margin-top:6px;display:flex;flex-direction:column;align-items:center;gap:6px}
+.ao-graph{margin-top:4px;display:flex;flex-direction:column;align-items:center;gap:10px;
+  background:radial-gradient(ellipse 55% 46% at 50% 0%, var(--accent-softer), var(--bg-elev) 62%)}
 .ao-council{display:flex;justify-content:center;padding:6px 0 2px}
 .ao-ring{width:128px;height:128px;border-radius:50%;display:flex;align-items:center;justify-content:center;
   background:radial-gradient(circle at 50% 40%, var(--accent-softer), transparent 70%);
@@ -71,12 +72,12 @@
 .ao-ring.run .ao-core{animation:ao-spin 6s linear infinite reverse}
 .ao-core-title{font-size:11px;font-weight:800;letter-spacing:.06em}
 .ao-core-sub{font-size:10px;opacity:.85;margin-top:2px;max-width:80px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.ao-pipeline{display:flex;gap:0;align-items:stretch;overflow-x:auto;padding:14px 4px 4px;width:100%;justify-content:flex-start}
-.ao-agent{flex:0 0 188px;border:1.5px solid var(--border);border-radius:var(--r-md);background:var(--bg-elev);
-  padding:11px 12px;position:relative;transition:border-color .25s,box-shadow .25s,transform .15s}
-.ao-agent:not(:last-child){margin-right:34px}
-.ao-agent:not(:last-child)::after{content:"→";position:absolute;right:-26px;top:50%;transform:translateY(-50%);
-  color:var(--text-soft);font-size:18px;font-weight:700}
+.ao-pipeline{display:flex;gap:0;align-items:stretch;overflow-x:auto;padding:18px 4px 6px;width:100%;justify-content:flex-start}
+.ao-agent{flex:0 0 204px;border:1px solid var(--border);border-radius:var(--r-md);background:var(--bg-elev);
+  padding:14px 15px;position:relative;box-shadow:var(--shadow-xs);transition:border-color .25s,box-shadow .25s,transform .15s}
+.ao-agent:not(:last-child){margin-right:36px}
+.ao-agent:not(:last-child)::after{content:"›";position:absolute;right:-26px;top:50%;transform:translateY(-50%);
+  color:var(--text-soft);font-size:22px;font-weight:400}
 .ao-agent.clickable{cursor:pointer}
 .ao-agent.clickable:hover{transform:translateY(-2px);box-shadow:0 4px 14px rgba(0,0,0,.07)}
 .ao-agent-head{display:flex;align-items:center;justify-content:space-between;gap:6px;margin-bottom:6px}
