@@ -39,6 +39,14 @@
 .rs-log{font-size:13px;color:var(--text);display:flex;flex-direction:column;gap:6px;max-height:280px;overflow:auto}
 .rs-log .rs-line{display:flex;gap:8px;align-items:flex-start}
 .rs-log .material-symbols-rounded{font-size:16px;color:var(--accent)}
+#rsLibrary{display:grid;grid-template-columns:repeat(auto-fill,minmax(264px,1fr));gap:14px}
+.rs-card{display:flex;flex-direction:column;transition:transform .15s,box-shadow .15s}
+.rs-card:hover{transform:translateY(-2px);box-shadow:var(--shadow-md)}
+.rs-card .rs-ic{width:36px;height:36px;border-radius:11px;background:var(--accent-softer);color:var(--accent);display:grid;place-items:center;margin-bottom:11px}
+.rs-card .rs-ic .material-symbols-rounded{font-size:20px}
+.rs-card .rs-title{font-weight:700;color:var(--text-strong);font-size:13.5px;line-height:1.35;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.rs-card .rs-meta{font-size:12px;color:var(--text-muted);margin-top:5px}
+.rs-card .rs-acts{display:flex;gap:6px;margin-top:14px;align-items:center}
 </style>
 
 <script>
@@ -112,11 +120,12 @@
     el.innerHTML='';
     for(const it of arr){
       const id=it.session_id||it.id; const title=it.query||it.title||'Research'; const meta=(it.category||'')+(it.sources?(' · '+it.sources+' sources'):'')+(it.created_at?(' · '+String(it.created_at).slice(0,10)):'');
-      const c=document.createElement('div'); c.className='card card-pad';
-      c.innerHTML='<div style="font-weight:700;color:var(--text-strong);font-size:13px">'+esc(title)+'</div><div class="ws-item-sub" style="margin-top:4px">'+esc(meta)+'</div>'+
-        '<div style="display:flex;gap:6px;margin-top:10px;flex-wrap:wrap"><a class="btn btn-sm btn-primary" target="_blank" href="'+OUI+'/research/report/'+id+'"><span class="material-symbols-rounded">description</span>Report</a>'+
+      const c=document.createElement('div'); c.className='card card-pad rs-card';
+      c.innerHTML='<div class="rs-ic"><span class="material-symbols-rounded">travel_explore</span></div>'+
+        '<div class="rs-title">'+esc(title)+'</div><div class="rs-meta">'+esc(meta||'Research report')+'</div>'+
+        '<div class="rs-acts"><a class="btn btn-sm btn-primary" target="_blank" href="'+OUI+'/research/report/'+id+'"><span class="material-symbols-rounded">description</span>Report</a>'+
         '<button class="btn btn-sm" data-a="discuss"><span class="material-symbols-rounded">chat</span>Discuss</button>'+
-        '<button class="btn btn-sm btn-danger" data-a="del">Delete</button></div>';
+        '<button class="btn btn-sm btn-ghost" data-a="del" title="Delete" style="margin-left:auto;color:var(--text-soft)"><span class="material-symbols-rounded">delete</span></button></div>';
       c.querySelector('[data-a="discuss"]').onclick=async()=>{ await window.oui.postJson('/research/spinoff/'+id,{}); location.hash='#/copilot'; };
       c.querySelector('[data-a="del"]').onclick=async()=>{ await window.oui.del('/research/'+id); loadLibrary(); };
       el.appendChild(c);
