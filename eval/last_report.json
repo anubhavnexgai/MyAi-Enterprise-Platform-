@@ -1,0 +1,242 @@
+{
+  "llm_reachable": true,
+  "deterministic_pass": true,
+  "verifier_accuracy": 1.0,
+  "results": [
+    {
+      "id": "need-email-summary",
+      "kind": "need",
+      "function": "General",
+      "passed": true,
+      "detail": "need=True want=True"
+    },
+    {
+      "id": "need-calendar-tomorrow",
+      "kind": "need",
+      "function": "General",
+      "passed": true,
+      "detail": "need=True want=True"
+    },
+    {
+      "id": "need-draft-reply",
+      "kind": "need",
+      "function": "Sales",
+      "passed": true,
+      "detail": "need=True want=True"
+    },
+    {
+      "id": "need-drive-budget",
+      "kind": "need",
+      "function": "Finance",
+      "passed": true,
+      "detail": "need=True want=True"
+    },
+    {
+      "id": "need-status-update",
+      "kind": "need",
+      "function": "Eng",
+      "passed": true,
+      "detail": "need=True want=True"
+    },
+    {
+      "id": "need-haiku-false",
+      "kind": "need",
+      "function": "General",
+      "passed": true,
+      "detail": "need=False want=False"
+    },
+    {
+      "id": "need-knowledge-false",
+      "kind": "need",
+      "function": "Eng",
+      "passed": true,
+      "detail": "need=False want=False"
+    },
+    {
+      "id": "need-oauth-false",
+      "kind": "need",
+      "function": "Eng",
+      "passed": true,
+      "detail": "need=False want=False"
+    },
+    {
+      "id": "need-translate-false",
+      "kind": "need",
+      "function": "General",
+      "passed": true,
+      "detail": "need=False want=False"
+    },
+    {
+      "id": "scrub-name-date",
+      "kind": "scrub",
+      "function": "General",
+      "passed": true,
+      "detail": "clean",
+      "output": "Hi Alex,\n\nHere is my update for Monday, 21 July 2025.\n\nThanks,\nAlex"
+    },
+    {
+      "id": "scrub-project",
+      "kind": "scrub",
+      "function": "Eng",
+      "passed": true,
+      "detail": "clean",
+      "output": "This week I focused on this work and will continue next sprint."
+    },
+    {
+      "id": "scrub-braces",
+      "kind": "scrub",
+      "function": "General",
+      "passed": true,
+      "detail": "clean",
+      "output": "Hello Alex, the this work kickoff is confirmed."
+    },
+    {
+      "id": "scrub-clean-passthrough",
+      "kind": "scrub",
+      "function": "General",
+      "passed": true,
+      "detail": "clean",
+      "output": "Hi Manager, here is my update for this week. Thanks, Alex."
+    },
+    {
+      "id": "verify-email-grounded",
+      "kind": "verify",
+      "function": "General",
+      "passed": true,
+      "detail": "status=grounded want_grounded=True unsupported=[]"
+    },
+    {
+      "id": "verify-email-fabricated",
+      "kind": "verify",
+      "function": "General",
+      "passed": true,
+      "detail": "status=ungrounded want_grounded=False unsupported=['note from John Carter about the Q3 offsite in Lisbon next Friday']"
+    },
+    {
+      "id": "verify-calendar-grounded",
+      "kind": "verify",
+      "function": "General",
+      "passed": true,
+      "detail": "status=grounded want_grounded=True unsupported=[]"
+    },
+    {
+      "id": "verify-calendar-fabricated",
+      "kind": "verify",
+      "function": "General",
+      "passed": true,
+      "detail": "status=ungrounded want_grounded=False unsupported=['1:1 with Sarah at 4pm']"
+    },
+    {
+      "id": "caveat-appends-on-ungrounded",
+      "kind": "caveat",
+      "function": "General",
+      "passed": true,
+      "detail": "appended=True want=True"
+    },
+    {
+      "id": "caveat-silent-on-grounded",
+      "kind": "caveat",
+      "function": "General",
+      "passed": true,
+      "detail": "appended=False want=False"
+    },
+    {
+      "id": "gate-L1-send-blocked-readonly",
+      "kind": "autonomy",
+      "function": "Guardrails",
+      "passed": true,
+      "detail": "L1 send confirm=False -> allowed=False needs_conf=False"
+    },
+    {
+      "id": "gate-L1-send-blocked-even-confirmed",
+      "kind": "autonomy",
+      "function": "Guardrails",
+      "passed": true,
+      "detail": "L1 send confirm=True -> allowed=False needs_conf=False"
+    },
+    {
+      "id": "gate-L1-read-allowed",
+      "kind": "autonomy",
+      "function": "Guardrails",
+      "passed": true,
+      "detail": "L1 read confirm=False -> allowed=True needs_conf=False"
+    },
+    {
+      "id": "gate-L2-send-needs-confirm",
+      "kind": "autonomy",
+      "function": "Guardrails",
+      "passed": true,
+      "detail": "L2 send confirm=False -> allowed=False needs_conf=True"
+    },
+    {
+      "id": "gate-L2-send-confirmed-allowed",
+      "kind": "autonomy",
+      "function": "Guardrails",
+      "passed": true,
+      "detail": "L2 send confirm=True -> allowed=True needs_conf=False"
+    },
+    {
+      "id": "gate-L3-schedule-auto",
+      "kind": "autonomy",
+      "function": "Guardrails",
+      "passed": true,
+      "detail": "L3 schedule confirm=False -> allowed=True needs_conf=False"
+    },
+    {
+      "id": "gate-L4-delete-needs-confirm",
+      "kind": "autonomy",
+      "function": "Guardrails",
+      "passed": true,
+      "detail": "L4 delete confirm=False -> allowed=False needs_conf=True"
+    },
+    {
+      "id": "gate-L4-delete-confirmed-allowed",
+      "kind": "autonomy",
+      "function": "Guardrails",
+      "passed": true,
+      "detail": "L4 delete confirm=True -> allowed=True needs_conf=False"
+    },
+    {
+      "id": "gate-L5-send-auto",
+      "kind": "autonomy",
+      "function": "Guardrails",
+      "passed": true,
+      "detail": "L5 send confirm=False -> allowed=True needs_conf=False"
+    },
+    {
+      "id": "research-plan-1",
+      "kind": "research_plan",
+      "function": "research",
+      "passed": true,
+      "detail": "subs=3 queries=3"
+    },
+    {
+      "id": "research-cite-pos",
+      "kind": "research_cite",
+      "function": "research",
+      "passed": true,
+      "detail": "cite=True want=True scrub_clean=True"
+    },
+    {
+      "id": "research-cite-neg",
+      "kind": "research_cite",
+      "function": "research",
+      "passed": true,
+      "detail": "cite=False want=False scrub_clean=True"
+    },
+    {
+      "id": "research-cite-scrub",
+      "kind": "research_cite",
+      "function": "research",
+      "passed": true,
+      "detail": "cite=True want=True scrub_clean=True"
+    },
+    {
+      "id": "research-live-1",
+      "kind": "research",
+      "function": "research",
+      "passed": true,
+      "detail": "sources=24 cite=True partial=False rounds=1"
+    }
+  ]
+}

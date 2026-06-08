@@ -16,6 +16,9 @@ scopes:
 # Map Azure AD security groups onto MyAi-Enterprise application roles.
 # Roles control RBAC in the FastAPI layer (see app/auth/middleware.py).
 role_mapping:
+  MyAi-NexgAI-SuperAdmins:
+    - super_admin
+    - admin
   MyAi-NexgAI-Admins:
     - admin
     - supervisor

@@ -1,0 +1,138 @@
+<div class="page-header">
+  <div>
+    <h1 class="page-title">Tasks &amp; Routines</h1>
+    <div class="page-subtitle">Scheduled prompts &amp; actions that run automatically — results land in a dedicated session</div>
+  </div>
+</div>
+
+<!-- TASKS VIEW -->
+<div id="tkTasksView">
+  <div class="ws-toolbar">
+    <b class="ws-grow" id="tkCount">Ongoing tasks</b>
+    <button class="btn btn-sm" id="tkPauseAll"><span class="material-symbols-rounded">pause</span> Pause all</button>
+    <button class="btn btn-sm btn-primary" id="tkAddBtn"><span class="material-symbols-rounded">add</span> Add task</button>
+  </div>
+  <input class="ws-input" id="tkSearch" placeholder="Search tasks…" style="width:100%;margin-bottom:10px">
+  <div class="tk-chips" id="tkChips"></div>
+  <div id="tkList" style="margin-top:12px"><div class="ws-empty">Loading…</div></div>
+</div>
+
+<!-- ADD VIEW -->
+<div id="tkAddView" style="display:none">
+  <div class="ws-toolbar"><button class="btn btn-sm" id="tkBack"><span class="material-symbols-rounded">arrow_back</span> Back to tasks</button></div>
+  <div class="card card-pad" style="margin-bottom:14px">
+    <h3 style="margin:0 0 4px">Add task</h3>
+    <div style="font-size:13px;color:var(--text-muted);margin-bottom:10px">Describe a task for the AI to draft, or pick a type below.</div>
+    <div style="display:flex;gap:8px"><input class="ws-input ws-grow" id="tkDesc" placeholder='e.g. "every weekday 7am summarize my unread email"'><button class="btn btn-primary" id="tkDraft"><span class="material-symbols-rounded">auto_awesome</span> Draft with AI</button></div>
+  </div>
+  <div class="tk-types" id="tkTypes"></div>
+</div>
+
+<style>
+.tk-chips{display:flex;gap:6px;flex-wrap:wrap}
+.tk-chip{border:1px solid var(--border);background:var(--bg-elev);color:var(--text-muted);border-radius:var(--r-pill);padding:4px 12px;font-size:12px;font-weight:600;cursor:pointer}
+.tk-chip.active{background:var(--accent);color:#fff;border-color:var(--accent)}
+.tk-row{display:flex;align-items:center;gap:10px;border:1px solid var(--border);background:var(--bg-elev);border-radius:var(--r-md);padding:12px 14px;margin-bottom:8px;animation:ui-fadein .2s ease both}
+.tk-row .material-symbols-rounded{font-size:18px;color:var(--text-muted)}
+.tk-info{flex:1;min-width:0}
+.tk-name{font-weight:700;color:var(--text-strong);display:flex;align-items:center;gap:8px}
+.tk-badge{font-size:10px;font-weight:700;background:var(--bg-subtle);color:var(--text-muted);border-radius:4px;padding:1px 6px}
+.tk-sub{font-size:12px;color:var(--text-soft);margin-top:2px;font-family:ui-monospace,monospace}
+.tk-state{font-size:11px;font-weight:700;border-radius:var(--r-pill);padding:3px 10px;cursor:pointer}
+.tk-state.active{background:var(--green-soft);color:var(--green)}
+.tk-state.paused{background:var(--orange-soft);color:var(--orange)}
+.tk-types{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:10px}
+.tk-type{border:1px solid var(--border);background:var(--bg-elev);border-radius:var(--r-md);padding:14px;cursor:pointer;display:flex;gap:10px;align-items:flex-start}
+.tk-type:hover{border-color:var(--accent);box-shadow:var(--shadow-sm)}
+.tk-type .material-symbols-rounded{color:var(--accent)}
+.tk-type b{color:var(--text-strong);display:block}
+.tk-type span{font-size:12px;color:var(--text-muted)}
+</style>
+
+<script>
+(function(){
+  const root=document.getElementById('tkTasksView'); if(!root||root.dataset.bound==='1') return; root.dataset.bound='1';
+  const esc=window.escapeHtml, toast=window.toast||console.log;
+  let tasks=[], filter='all', q='';
+  const CATS=['calendar','email','chat','document','memory','research','skill'];
+  function catOf(t){ const s=((t.name||'')+' '+(t.action||'')+' '+(t.task_type||'')).toLowerCase(); for(const c of CATS){ if(s.includes(c)) return c; } return 'other'; }
+
+  function showView(v){ document.getElementById('tkTasksView').style.display=v==='tasks'?'':'none'; document.getElementById('tkAddView').style.display=v==='add'?'':'none'; if(v==='add') renderTypes(); }
+  document.getElementById('tkAddBtn').onclick=()=>showView('add');
+  document.getElementById('tkBack').onclick=()=>showView('tasks');
+
+  async function load(){
+    const d=await window.oui.get('/tasks'); tasks=(d&&d.tasks)||[];
+    document.getElementById('tkCount').textContent='Ongoing tasks · '+tasks.length;
+    // chips with counts
+    const counts={}; tasks.forEach(t=>{ const c=catOf(t); counts[c]=(counts[c]||0)+1; });
+    const chips=document.getElementById('tkChips'); let h='<button class="tk-chip'+(filter==='all'?' active':'')+'" data-c="all">all ('+tasks.length+')</button>';
+    CATS.concat('other').forEach(c=>{ if(counts[c]) h+='<button class="tk-chip'+(filter===c?' active':'')+'" data-c="'+c+'">'+c+' ('+counts[c]+')</button>'; });
+    chips.innerHTML=h; chips.querySelectorAll('.tk-chip').forEach(b=>b.onclick=()=>{ filter=b.dataset.c; render(); });
+    render();
+  }
+  function render(){
+    let arr=tasks.slice(); if(filter!=='all') arr=arr.filter(t=>catOf(t)===filter); if(q) arr=arr.filter(t=>(t.name||'').toLowerCase().includes(q));
+    const el=document.getElementById('tkList');
+    if(!arr.length){ el.innerHTML='<div class="ws-empty">No tasks.</div>'; return; }
+    el.innerHTML='';
+    for(const t of arr){
+      const active=t.status==='active'; const sched=t.cron_expression?('Cron: '+t.cron_expression):((t.schedule||'')+' '+(t.scheduled_time||'')); const nxt=t.next_run?(' · next '+String(t.next_run).slice(0,16).replace('T',' ')):'';
+      const row=document.createElement('div'); row.className='tk-row';
+      row.innerHTML='<span class="material-symbols-rounded">'+(t.task_type==='research'?'travel_explore':(t.task_type==='action'?'bolt':'schedule'))+'</span>'+
+        '<div class="tk-info"><div class="tk-name">'+esc(t.name||'(unnamed)')+(t.is_builtin?'<span class="tk-badge">BUILT-IN</span>':'')+'</div><div class="tk-sub">'+esc(sched.trim())+esc(nxt)+'</div></div>'+
+        '<span class="tk-state '+(active?'active':'paused')+'">'+(active?'ACTIVE':'PAUSED')+'</span>'+
+        '<button class="btn btn-sm" data-a="run"><span class="material-symbols-rounded">play_arrow</span>Run</button>'+
+        '<button class="icon-btn" data-a="menu"><span class="material-symbols-rounded">more_vert</span></button>';
+      row.querySelector('.tk-state').onclick=async()=>{ await window.oui.postForm('/tasks/'+t.id+'/'+(active?'pause':'resume'),{}); load(); };
+      row.querySelector('[data-a="run"]').onclick=async()=>{ await window.oui.postForm('/tasks/'+t.id+'/run',{}); toast('Task triggered','success'); };
+      row.querySelector('[data-a="menu"]').onclick=()=>menu(t);
+      el.appendChild(row);
+    }
+  }
+  function menu(t){
+    window.openModal('<div class="modal-head"><h3>'+esc(t.name||'Task')+'</h3><button class="icon-btn" data-close><span class="material-symbols-rounded">close</span></button></div>'+
+      '<div class="modal-body"><div class="ws-item-sub">'+esc(t.task_type||'')+' · '+esc(t.cron_expression||((t.schedule||'')+' '+(t.scheduled_time||'')))+'</div><div class="card card-pad" style="margin-top:10px;white-space:pre-wrap;font-size:13px">'+esc(t.prompt||t.action||'')+'</div></div>'+
+      '<div class="modal-foot"><button class="btn btn-danger" id="tkDel">Delete</button><button class="btn" id="tkRun">Run now</button></div>');
+    document.getElementById('tkDel').onclick=async()=>{ await window.oui.del('/tasks/'+t.id); window.closeModal(); toast('Deleted','info'); load(); };
+    document.getElementById('tkRun').onclick=async()=>{ await window.oui.postForm('/tasks/'+t.id+'/run',{}); window.closeModal(); toast('Triggered','success'); };
+  }
+  document.getElementById('tkPauseAll').onclick=async()=>{ for(const t of tasks){ if(t.status==='active') await window.oui.postForm('/tasks/'+t.id+'/pause',{}); } toast('All paused','info'); load(); };
+  let st; document.getElementById('tkSearch').oninput=e=>{ clearTimeout(st); st=setTimeout(()=>{ q=e.target.value.toLowerCase(); render(); },200); };
+
+  // ---- Add view ----
+  const TYPES=[
+    {t:'Prompt on schedule',d:'Run a prompt daily, weekly, etc.',icon:'schedule',task_type:'llm',trigger:'schedule'},
+    {t:'Prompt on event',d:'Trigger every N sessions or messages',icon:'bolt',task_type:'llm',trigger:'event'},
+    {t:'Research on schedule',d:'Run deep research on a topic',icon:'travel_explore',task_type:'research',trigger:'schedule'},
+    {t:'Research on event',d:'Run deep research after app events',icon:'travel_explore',task_type:'research',trigger:'event'},
+    {t:'Action on schedule',d:'Run a built-in action on a timer',icon:'play_circle',task_type:'action',trigger:'schedule'},
+    {t:'Action on event',d:'Run an action on app events',icon:'flash_on',task_type:'action',trigger:'event'},
+    {t:'Webhook triggered',d:'Trigger via external HTTP call',icon:'webhook',task_type:'llm',trigger:'webhook'},
+  ];
+  function renderTypes(){ const el=document.getElementById('tkTypes'); el.innerHTML=''; TYPES.forEach(ty=>{ const c=document.createElement('div'); c.className='tk-type'; c.innerHTML='<span class="material-symbols-rounded">'+ty.icon+'</span><div><b>'+ty.t+'</b><span>'+ty.d+'</span></div>'; c.onclick=()=>createForm(ty); el.appendChild(c); }); }
+  function createForm(ty, draft){
+    draft=draft||{};
+    window.openModal('<div class="modal-head"><h3>'+esc(ty?ty.t:'New task')+'</h3><button class="icon-btn" data-close><span class="material-symbols-rounded">close</span></button></div>'+
+      '<div class="modal-body"><label class="ws-field">Name<input id="ntName" value="'+esc(draft.name||'')+'"></label>'+
+      '<label class="ws-field">Prompt / instruction<textarea id="ntPrompt">'+esc(draft.prompt||'')+'</textarea></label>'+
+      '<div class="ws-row"><label class="ws-field">Schedule<select id="ntSched"><option value="daily">Daily</option><option value="weekly">Weekly</option><option value="monthly">Monthly</option><option value="once">Once</option><option value="cron">Cron</option></select></label>'+
+      '<label class="ws-field">Time<input id="ntTime" value="'+esc(draft.scheduled_time||'09:00')+'"></label></div>'+
+      '<label class="ws-field">Cron (if Cron)<input id="ntCron" value="'+esc(draft.cron_expression||'')+'"></label>'+
+      '<label class="ws-field">Deliver to<select id="ntOut"><option value="notification">Notification</option><option value="session">Chat session</option><option value="email">Email</option></select></label></div>'+
+      '<div class="modal-foot"><button class="btn" data-close>Cancel</button><button class="btn btn-primary" id="ntSave">Create</button></div>');
+    if(draft.schedule) document.getElementById('ntSched').value=draft.schedule;
+    document.getElementById('ntSave').onclick=async()=>{
+      const body={name:document.getElementById('ntName').value,prompt:document.getElementById('ntPrompt').value,task_type:(ty&&ty.task_type)||draft.task_type||'llm',trigger_type:(ty&&ty.trigger)||'schedule',schedule:document.getElementById('ntSched').value,scheduled_time:document.getElementById('ntTime').value,cron_expression:document.getElementById('ntCron').value,output_target:document.getElementById('ntOut').value};
+      const r=await window.oui.postJson('/tasks',body); if(r.ok){ window.closeModal(); toast('Task created','success'); showView('tasks'); load(); } else toast('Create failed','error');
+    };
+  }
+  document.getElementById('tkDraft').onclick=async()=>{
+    const desc=document.getElementById('tkDesc').value.trim(); if(!desc){ toast('Describe the task','error'); return; }
+    toast('Drafting…','info'); const r=await window.oui.postJson('/tasks/parse',{description:desc});
+    if(r.json&&r.json.success&&r.json.draft){ createForm(null, r.json.draft); } else toast('Could not draft — fill it in manually','error');
+  };
+
+  showView('tasks'); load();
+})();
+</script>

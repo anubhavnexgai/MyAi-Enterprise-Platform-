@@ -1,0 +1,129 @@
+<div class="page-header">
+  <div>
+    <h1 class="page-title">Deep Research</h1>
+    <div class="page-subtitle">Multi-step web research with an LLM-in-the-loop — produces a rich visual report</div>
+  </div>
+</div>
+
+<div class="card card-pad" id="rsForm">
+  <label class="ws-field">Research question
+    <textarea id="rsQuery" rows="3" placeholder="e.g. The best open-source LLMs to run locally in 2026 and their tradeoffs"></textarea>
+  </label>
+  <div class="rs-chips" id="rsChips">
+    <button class="rs-chip active" data-cat="auto">Auto</button>
+    <button class="rs-chip" data-cat="product">Product</button>
+    <button class="rs-chip" data-cat="compare">Compare</button>
+    <button class="rs-chip" data-cat="howto">How-to</button>
+    <button class="rs-chip" data-cat="factcheck">Fact-check</button>
+  </div>
+  <div class="ws-row" style="margin-top:8px;align-items:flex-end">
+    <label class="ws-field" style="max-width:160px">Rounds
+      <select class="ws-input" id="rsRounds"><option value="0">Auto</option><option value="1">1</option><option value="2">2</option><option value="3">3</option><option value="5">5</option></select>
+    </label>
+    <label class="ws-field ws-grow">Model
+      <select class="ws-input" id="rsModel"></select>
+    </label>
+    <button class="btn btn-primary" id="rsStart" style="margin-bottom:10px"><span class="material-symbols-rounded">play_arrow</span> Start</button>
+  </div>
+</div>
+
+<div id="rsProgress" class="card card-pad" style="display:none;margin-top:14px"></div>
+
+<div class="ws-toolbar" style="margin-top:18px"><h3 style="margin:0" class="ws-grow">Past research</h3></div>
+<div id="rsLibrary" class="ws-grid"></div>
+
+<style>
+.rs-chips{display:flex;gap:8px;flex-wrap:wrap;margin-top:6px}
+.rs-chip{border:1px solid var(--border);background:var(--bg-elev);color:var(--text-muted);border-radius:var(--r-pill);padding:5px 14px;font-size:13px;font-weight:600;cursor:pointer}
+.rs-chip.active{background:var(--accent);color:#fff;border-color:var(--accent)}
+.rs-log{font-size:13px;color:var(--text);display:flex;flex-direction:column;gap:6px;max-height:280px;overflow:auto}
+.rs-log .rs-line{display:flex;gap:8px;align-items:flex-start}
+.rs-log .material-symbols-rounded{font-size:16px;color:var(--accent)}
+</style>
+
+<script>
+(function(){
+  const form=document.getElementById('rsForm'); if(!form||form.dataset.bound==='1') return; form.dataset.bound='1';
+  const OUI='/api/oui'; const esc=window.escapeHtml, toast=window.toast||console.log;
+  let cat='auto', model=null, running=false;
+
+  document.getElementById('rsChips').querySelectorAll('.rs-chip').forEach(c=>c.onclick=()=>{ document.getElementById('rsChips').querySelectorAll('.rs-chip').forEach(x=>x.classList.remove('active')); c.classList.add('active'); cat=c.dataset.cat; });
+
+  async function loadModels(){
+    const d=await window.oui.get('/models'); const items=(d&&d.items)||[]; const sel=document.getElementById('rsModel'); const seen=new Set(); const list=[];
+    const ordered=[...items].sort((a,b)=>(/\/v1/.test(b.url||'')?1:0)-(/\/v1/.test(a.url||'')?1:0));
+    for(const ep of ordered){ for(const m of (ep.models||[])){ if(/embed/i.test(m)||seen.has(m)) continue; seen.add(m); list.push({ep,m}); } }
+    sel.innerHTML=list.map(x=>'<option value="'+esc((x.ep.endpoint_id||'')+'|||'+x.m)+'">'+esc(x.m)+'</option>').join('')||'<option value="">No models — add one in Chat</option>';
+    // Default to a reliable OpenRouter NON-REASONING instruct model (reasoning
+    // models leak thinking / can return empty during synthesis).
+    const reasoning=/(kimi|deepseek-?r1|[-_/]r1[-_:.]|qwq|reasoning|thinking|magistral)/i;
+    const preferred=/(gemma|qwen.*instruct|instruct|gpt-oss|mistral|llama)/i;
+    const isOR=x=>/openrouter\.ai/i.test(x.ep.url||x.ep.endpoint_url||'');
+    const ok=list.filter(x=>!reasoning.test(x.m)); const or=ok.filter(isOR);
+    const pick = or.find(x=>preferred.test(x.m)) || or[0] || ok.find(x=>preferred.test(x.m)) || ok[0] || list[0];
+    if(pick) sel.value=(pick.ep.endpoint_id||'')+'|||'+pick.m;
+  }
+
+  const setActive=(sid)=>{ try{ sid?localStorage.setItem('rs_active',sid):localStorage.removeItem('rs_active'); }catch(e){} };
+
+  // Stream a research run's progress. Used by Start AND on page-load resume, so
+  // an in-progress run keeps showing live even after a refresh or in a new tab.
+  async function streamResearch(sid, resumed){
+    if(!sid||running) return; running=true;
+    let cancelled=false, finalStatus='', errMsg='';
+    const prog=document.getElementById('rsProgress'); prog.style.display='';
+    prog.innerHTML='<div class="ws-toolbar"><b class="ws-grow" id="rsHead">'+(resumed?'Resuming research…':'Researching… (this can take a few minutes on a local model)')+'</b><button class="btn btn-sm btn-danger" id="rsCancel">Cancel</button></div><div class="rs-log" id="rsLog"><div class="rs-line"><span class="material-symbols-rounded">bolt</span>'+(resumed?'Reconnecting to your running research…':'Starting…')+'</div></div>';
+    document.getElementById('rsCancel').onclick=async()=>{ cancelled=true; document.getElementById('rsHead').textContent='Cancelling…'; await window.oui.postJson('/research/cancel/'+sid,{}); };
+    const log=document.getElementById('rsLog'); let lastPhase='';
+    function line(t){ const d=document.createElement('div'); d.className='rs-line'; d.innerHTML='<span class="material-symbols-rounded">arrow_right</span>'+esc(t); log.appendChild(d); log.scrollTop=log.scrollHeight; }
+    try{
+      const res=await fetch(OUI+'/research/stream/'+sid,{credentials:'include'}); const rd=res.body.getReader(); const dec=new TextDecoder(); let buf='';
+      while(true){ const {done,value}=await rd.read(); if(done) break; buf+=dec.decode(value,{stream:true}); const lines=buf.split('\n'); buf=lines.pop()||'';
+        for(const ln of lines){ if(!ln.startsWith('data:')) continue; const dd=ln.slice(5).trim(); try{ const j=JSON.parse(dd);
+          const ph=j.phase; if(ph){ if(ph==='reading'&&j.title) line('Reading: '+j.title); else if(ph!==lastPhase||j.round){ line(ph.charAt(0).toUpperCase()+ph.slice(1)+(j.round?(' · round '+j.round):'')+(j.total_sources?(' · '+j.total_sources+' sources'):'')+(j.total_findings?(' · '+j.total_findings+' findings'):'')); } lastPhase=ph; }
+          else if(j.message) line(j.message);
+          if(j.final||['done','complete','finished','error','cancelled'].includes(j.status)){ finalStatus=j.status||finalStatus; if(j.error){ errMsg=j.error; line('Error: '+j.error); } }
+        }catch(e){} }
+      }
+    }catch(e){ /* stream ended */ }
+    running=false; setActive(null);
+    if(cancelled||finalStatus==='cancelled'){ prog.innerHTML='<b>Research cancelled.</b>'; }
+    else if(finalStatus==='error'){ prog.innerHTML='<b style="color:var(--red)">Research failed.</b> <span style="color:var(--text-muted)">'+esc(errMsg||'See logs.')+'</span>'; }
+    else if(finalStatus){ prog.innerHTML='<div class="ws-toolbar"><b class="ws-grow">Research complete</b><a class="btn btn-sm btn-primary" target="_blank" href="'+OUI+'/research/report/'+sid+'"><span class="material-symbols-rounded">open_in_new</span>Visual Report</a></div>'; }
+    else { prog.innerHTML='<b>Stopped.</b> <span style="color:var(--text-muted)">Check Past research below — the report appears there when finished.</span>'; }
+    loadLibrary();
+  }
+
+  document.getElementById('rsStart').onclick=async()=>{
+    if(running) return; const query=document.getElementById('rsQuery').value.trim(); if(!query){ toast('Enter a question','error'); return; }
+    const [epid,m]=(document.getElementById('rsModel').value||'|||').split('|||');
+    const body={query, max_rounds:parseInt(document.getElementById('rsRounds').value||'0'), max_time:600, extraction_concurrency:2};
+    if(cat!=='auto') body.category=cat; if(epid) body.endpoint_id=epid; if(m) body.model=m;
+    const r=await window.oui.postJson('/research/start', body);
+    const sid=r.json&&(r.json.session_id||r.json.id);
+    if(!r.ok||!sid){ toast('Could not start research'+(r.json&&r.json.detail?': '+r.json.detail:''),'error'); return; }
+    document.getElementById('rsQuery').value=''; setActive(sid); streamResearch(sid, false);
+  };
+
+  async function loadLibrary(){
+    const d=await window.oui.get('/research/library'); const arr=(d&&(d.items||d.research||d.results))||(Array.isArray(d)?d:[]);
+    const el=document.getElementById('rsLibrary');
+    if(!arr.length){ el.innerHTML='<div class="ws-empty">No past research yet.</div>'; return; }
+    el.innerHTML='';
+    for(const it of arr){
+      const id=it.session_id||it.id; const title=it.query||it.title||'Research'; const meta=(it.category||'')+(it.sources?(' · '+it.sources+' sources'):'')+(it.created_at?(' · '+String(it.created_at).slice(0,10)):'');
+      const c=document.createElement('div'); c.className='card card-pad';
+      c.innerHTML='<div style="font-weight:700;color:var(--text-strong);font-size:13px">'+esc(title)+'</div><div class="ws-item-sub" style="margin-top:4px">'+esc(meta)+'</div>'+
+        '<div style="display:flex;gap:6px;margin-top:10px;flex-wrap:wrap"><a class="btn btn-sm btn-primary" target="_blank" href="'+OUI+'/research/report/'+id+'"><span class="material-symbols-rounded">description</span>Report</a>'+
+        '<button class="btn btn-sm" data-a="discuss"><span class="material-symbols-rounded">chat</span>Discuss</button>'+
+        '<button class="btn btn-sm btn-danger" data-a="del">Delete</button></div>';
+      c.querySelector('[data-a="discuss"]').onclick=async()=>{ await window.oui.postJson('/research/spinoff/'+id,{}); location.hash='#/copilot'; };
+      c.querySelector('[data-a="del"]').onclick=async()=>{ await window.oui.del('/research/'+id); loadLibrary(); };
+      el.appendChild(c);
+    }
+  }
+  loadModels(); loadLibrary();
+  // Resume an in-progress research run after a refresh / in another tab.
+  try{ const active=localStorage.getItem('rs_active'); if(active) streamResearch(active, true); }catch(e){}
+})();
+</script>

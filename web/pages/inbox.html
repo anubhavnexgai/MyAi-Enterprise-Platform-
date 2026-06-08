@@ -16,40 +16,30 @@
   </div>
 </div>
 
-<!-- AI Autonomy Card — controls how much the AI does to your inbox -->
-<div class="card autonomy-card">
-  <div class="autonomy-head">
-    <div>
-      <h3 class="card-title">AI Autonomy Level</h3>
-      <div class="card-sub" id="autonomySub">How much should MyAi do on its own?</div>
+<!-- AI Autonomy — compact: slider + current level; details are collapsible -->
+<div class="card autonomy-card" style="padding:14px 16px">
+  <div class="autonomy-head" style="margin-bottom:6px">
+    <div style="display:flex;align-items:center;gap:10px">
+      <h3 class="card-title" style="margin:0">AI Autonomy</h3>
+      <span class="pill pill-red" id="levelBadge">L1 — Observe</span>
     </div>
-    <span class="pill pill-red" id="levelBadge">L1 — Observe</span>
+    <button class="btn btn-sm" id="autonomyToggle" style="font-size:12px">
+      <span class="material-symbols-rounded" style="font-size:16px">tune</span> Levels
+    </button>
   </div>
   <div class="autonomy-slider" id="autonomySlider"></div>
-  <div class="autonomy-levels" id="autonomyLevels"></div>
+  <div class="card-sub" id="autonomyOneLine" style="margin-top:8px;font-size:12.5px"></div>
+  <div class="autonomy-levels" id="autonomyLevels" style="display:none;margin-top:10px"></div>
 </div>
 
-<!-- Filter Row — by priority and by source -->
+<!-- Filter Row — priority only (inbox is email-only) -->
 <div class="filter-row">
   <button class="pill-filter active" data-prio="All">All</button>
   <button class="pill-filter" data-prio="Critical">Critical</button>
   <button class="pill-filter" data-prio="High">High</button>
   <button class="pill-filter" data-prio="Medium">Medium</button>
   <button class="pill-filter" data-prio="Low">Low</button>
-
-  <span style="margin-left:8px;font-size:12px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.06em">Source</span>
-  <button class="pill-filter active" data-src="all">All</button>
-  <button class="pill-filter" data-src="email"><span class="material-symbols-rounded" style="font-size:14px;vertical-align:-3px;margin-right:3px">mail</span>Email</button>
-  <button class="pill-filter" data-src="calendar"><span class="material-symbols-rounded" style="font-size:14px;vertical-align:-3px;margin-right:3px">event</span>Calendar</button>
-  <button class="pill-filter" data-src="manual"><span class="material-symbols-rounded" style="font-size:14px;vertical-align:-3px;margin-right:3px">edit_note</span>Tasks</button>
-
   <div style="margin-left:auto;font-size:13px;color:var(--text-muted)" id="taskCount">Showing 0 of 0</div>
-</div>
-
-<!-- Mode Banner -->
-<div class="alert-banner" id="modeBanner">
-  <span class="material-symbols-rounded">info</span>
-  Active mode: L1 — Observe. AI surfaces insights only — no actions taken.
 </div>
 
 <!-- Split -->

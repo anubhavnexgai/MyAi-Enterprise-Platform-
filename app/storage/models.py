@@ -53,6 +53,31 @@ class InboxTask(Base):
     )
 
 
+class ScheduledEmail(Base):
+    """An email queued to send at a future time (Send later)."""
+    __tablename__ = "scheduled_emails"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    tenant_id: Mapped[str] = mapped_column(String(64), index=True, nullable=False)
+    creator_id: Mapped[str] = mapped_column(String(128), index=True, nullable=False)
+
+    account: Mapped[str] = mapped_column(String(32), default="gmail")  # gmail|outlook
+    to_addr: Mapped[str] = mapped_column(String(1024), nullable=False)
+    cc_addr: Mapped[Optional[str]] = mapped_column(String(1024), nullable=True)
+    subject: Mapped[str] = mapped_column(String(998), default="")
+    body: Mapped[str] = mapped_column(Text, default="")
+
+    send_at: Mapped[datetime] = mapped_column(DateTime, index=True, nullable=False)
+    status: Mapped[str] = mapped_column(String(16), default="pending", index=True)  # pending|sent|failed|cancelled
+    error: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    sent_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+
+    __table_args__ = (
+        Index("ix_sched_due", "status", "send_at"),
+    )
+
+
 # NOTE: connector accounts are managed by ``app.services.connector_manager`` via
 # its own aiosqlite table ``user_connections`` (so OAuth tokens stay isolated
 # from the SQLAlchemy ORM). See that module for the schema.
@@ -189,6 +214,107 @@ class HarvestedEvent(Base):
     )
 
 
+class MessageEnrichment(Base):
+    """Pre-computed AI triage for a harvested email (the 'wiki' the agent builds
+    in the background). Keyed by external_id so it SURVIVES the harvester's
+    delete+reinsert of harvested_messages. Read on inbox open for instant
+    suggestions; recomputed only when the email content hash changes.
+    """
+
+    __tablename__ = "message_enrichment"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    tenant_id: Mapped[str] = mapped_column(String(64), index=True, nullable=False)
+    creator_id: Mapped[str] = mapped_column(String(128), index=True, nullable=False)
+    external_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    content_hash: Mapped[str] = mapped_column(String(64), default="")
+    suggestion: Mapped[str] = mapped_column(Text, default="")
+    action: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
+    computed_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+    __table_args__ = (
+        Index("ix_enrich_external", "tenant_id", "creator_id", "external_id", unique=True),
+    )
+
+
+class ContactMemory(Base):
+    """Per-sender 'wiki' the agent builds in the background from harvested mail.
+
+    A rolling summary of who a sender is and the recent topics/asks from them,
+    so chat can instantly answer 'what's the latest with X?' without re-reading
+    every email. Keyed by a normalized sender key; recomputed only when that
+    sender's message set changes (content_hash).
+    """
+
+    __tablename__ = "contact_memory"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    tenant_id: Mapped[str] = mapped_column(String(64), index=True, nullable=False)
+    creator_id: Mapped[str] = mapped_column(String(128), index=True, nullable=False)
+    sender_key: Mapped[str] = mapped_column(String(256), nullable=False)  # normalized
+    sender_name: Mapped[str] = mapped_column(String(256), default="")
+    sender_addr: Mapped[str] = mapped_column(String(512), default="")
+    message_count: Mapped[int] = mapped_column(Integer, default=0)
+    last_date: Mapped[str] = mapped_column(String(64), default="")
+    content_hash: Mapped[str] = mapped_column(String(64), default="")
+    summary: Mapped[str] = mapped_column(Text, default="")
+    computed_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+    __table_args__ = (
+        Index("ix_contact_key", "tenant_id", "creator_id", "sender_key", unique=True),
+    )
+
+
+class ScheduledResearch(Base):
+    """A recurring deep-research watch. A background scheduler re-runs the topic on
+    its interval, diffs the new findings against the last run, and raises an alert
+    (an InboxTask) only when something genuinely new appears. Scoped per user."""
+
+    __tablename__ = "scheduled_research"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    tenant_id: Mapped[str] = mapped_column(String(64), index=True, nullable=False)
+    creator_id: Mapped[str] = mapped_column(String(128), index=True, nullable=False)
+    topic: Mapped[str] = mapped_column(String(512), nullable=False)
+    interval_hours: Mapped[int] = mapped_column(Integer, default=24)
+    active: Mapped[bool] = mapped_column(Integer, default=1)
+    last_run_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    next_run_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True, index=True)
+    last_summary: Mapped[str] = mapped_column(Text, default="")   # the prior report (for diffing)
+    last_sources: Mapped[Optional[list]] = mapped_column(JSON, nullable=True)
+    run_count: Mapped[int] = mapped_column(Integer, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+    __table_args__ = (
+        Index("ix_sched_research_user", "tenant_id", "creator_id"),
+    )
+
+
+class SemanticMemory(Base):
+    """A lightweight RAG row: an embedded snippet of past context (a chat turn, a
+    contact summary, an email gist) for semantic recall. Scoped per user. The
+    embedding is stored as a JSON float list — recall scores cosine in Python, so
+    no vector-DB dependency. Graceful: rows are only written when embeddings work.
+    """
+
+    __tablename__ = "semantic_memory"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    tenant_id: Mapped[str] = mapped_column(String(64), index=True, nullable=False)
+    creator_id: Mapped[str] = mapped_column(String(128), index=True, nullable=False)
+    kind: Mapped[str] = mapped_column(String(16), default="chat")  # chat|contact|email
+    ref: Mapped[Optional[str]] = mapped_column(String(256), nullable=True)
+    text: Mapped[str] = mapped_column(Text, default="")
+    embedding: Mapped[Optional[list]] = mapped_column(JSON, nullable=True)
+    content_hash: Mapped[str] = mapped_column(String(64), default="", index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+    __table_args__ = (
+        Index("ix_semmem_user", "tenant_id", "creator_id"),
+        Index("ix_semmem_hash", "tenant_id", "creator_id", "content_hash", unique=True),
+    )
+
+
 class HarvestState(Base):
     """Last successful crawl per (user, account, kind=messages|events)."""
 
@@ -227,3 +353,38 @@ class AuditLog(Base):
     ip_address: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
     user_agent: Mapped[Optional[str]] = mapped_column(String(512), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), index=True)
+
+
+class Employee(Base):
+    """A persistent record of an employee/user in a tenant.
+
+    Provisioned on first SSO login (and for the dev user) so the super-admin can
+    list everyone and attribute usage. ``user_id`` mirrors the JWT ``sub`` and is
+    the stable join key against ``creator_id`` on every other table.
+    """
+
+    __tablename__ = "employees"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    tenant_id: Mapped[str] = mapped_column(String(64), index=True, nullable=False)
+    user_id: Mapped[str] = mapped_column(String(128), index=True, nullable=False)
+
+    email: Mapped[str] = mapped_column(String(256), index=True, nullable=False)
+    full_name: Mapped[Optional[str]] = mapped_column(String(256), nullable=True)
+    # Comma-separated role slugs (e.g. "super_admin,agent") — matches the JWT
+    # roles list and the DEV_USER_ROLES env format.
+    roles: Mapped[str] = mapped_column(String(256), default="user")
+    is_active: Mapped[int] = mapped_column(Integer, default=1)  # 1 = active
+
+    department: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
+    manager_id: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
+
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    last_login_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now(), onupdate=func.now()
+    )
+
+    __table_args__ = (
+        Index("ix_employee_tenant_user", "tenant_id", "user_id", unique=True),
+    )

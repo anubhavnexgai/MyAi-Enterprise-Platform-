@@ -67,6 +67,16 @@ async def lifespan(app: FastAPI):  # pragma: no cover - exercised by manual run
     )
     await init_database()
 
+    # Orphaned research tasks (in_progress when the last process died) would
+    # linger as RUNNING on the dashboard — resolve them on boot.
+    try:
+        from app.api.copilot import cleanup_orphaned_research_tasks
+        cleaned = await cleanup_orphaned_research_tasks()
+        if cleaned:
+            logger.info("Resolved %d orphaned research task(s)", cleaned)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("research task cleanup skipped: %s", exc)
+
     if settings.dev_mode:
         logger.warning(
             "DEV_MODE is ON - every request is authenticated as %s on tenant %s",
@@ -74,21 +84,52 @@ async def lifespan(app: FastAPI):  # pragma: no cover - exercised by manual run
             settings.dev_tenant_id,
         )
 
+    # Seed the employee directory + varied per-employee usage so the super-admin
+    # analytics console has realistic multi-employee data. This is org-level demo
+    # scaffolding (the colleagues) and is independent of per-account inbox data —
+    # which is now seeded only for the demo accounts on login (see demo_seed
+    # is_demo_user). Idempotent.
+    try:
+        from app.services.demo_seed import seed_demo_org
+        info = await seed_demo_org(
+            settings.dev_tenant_id, settings.dev_user_id,
+            settings.dev_user_email, settings.dev_user_name,
+            ",".join(settings.dev_user_role_list),
+        )
+        logger.info("Demo org seeded: %s", info)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("demo org seed skipped: %s", exc)
+
     # Start background workers: harvester (Gmail/Outlook/Calendar cache) and
     # lifecycle ticker (SLA breach + escalation).
     import asyncio
     from app.services.harvester_worker import harvester_loop
     from app.services.lifecycle_ticker import lifecycle_loop
+    from app.services.research_scheduler import research_scheduler_loop
 
     workers = [
         asyncio.create_task(harvester_loop(), name="harvester"),
         asyncio.create_task(lifecycle_loop(), name="lifecycle"),
+        asyncio.create_task(research_scheduler_loop(), name="research_scheduler"),
     ]
+
+    # Odysseus bridge: start the idle-instance reaper. Instances themselves are
+    # spawned lazily on first /api/oui/* request (see app/odysseus_bridge/).
+    odysseus_sup = None
+    if settings.odysseus_enabled:
+        from app.odysseus_bridge import get_supervisor
+        odysseus_sup = get_supervisor()
+        workers.append(asyncio.create_task(odysseus_sup.reaper_loop(), name="odysseus_reaper"))
 
     try:
         yield
     finally:
         logger.info("Shutting down...")
+        if odysseus_sup is not None:
+            try:
+                await odysseus_sup.shutdown_all()
+            except Exception:  # noqa: BLE001
+                pass
         for w in workers:
             w.cancel()
         for w in workers:
@@ -131,6 +172,12 @@ def create_app() -> FastAPI:
 
     # ---- API routes ----
     register_api(app)
+
+    # ---- Odysseus bridge proxy (/api/oui/*) ----
+    # Vendored Odysseus feature suite, one isolated subprocess per tenant.
+    if settings.odysseus_enabled:
+        from app.odysseus_bridge.proxy import router as odysseus_router
+        app.include_router(odysseus_router)
 
     # ---- Health ----
     @app.get("/health", tags=["meta"])
@@ -181,6 +228,16 @@ def create_app() -> FastAPI:
                 return JSONResponse({"detail": "styles.css missing"}, status_code=404)
             return FileResponse(str(p), media_type="text/css")
 
+        # Service worker must be served from root so its scope covers the whole
+        # SPA (a /static/ path would scope it to /static/ only). PWA: see
+        # web/manifest.json + the registration in web/index.html.
+        @app.get("/sw.js", include_in_schema=False)
+        async def spa_sw():
+            p = web_dir / "sw.js"
+            if not p.exists():
+                return JSONResponse({"detail": "sw.js missing"}, status_code=404)
+            return FileResponse(str(p), media_type="application/javascript")
+
         # Page fragments loaded by the SPA router
         @app.get("/pages/{name}.html", include_in_schema=False)
         async def spa_page(name: str):
@@ -208,13 +265,22 @@ app = create_app()
 
 def run() -> None:
     s = get_settings()
-    uvicorn.run(
-        "app.main:app",
-        host=s.host,
-        port=s.port,
-        reload=s.app_env.lower() == "development",
-        log_level=s.log_level.lower(),
-    )
+    dev = s.app_env.lower() == "development"
+    kwargs: dict = {
+        "host": s.host,
+        "port": s.port,
+        "reload": dev,
+        "log_level": s.log_level.lower(),
+    }
+    if dev:
+        # Watch ONLY code dirs. Otherwise the reloader thrashes on every write to
+        # data/ (research JSON, the SQLite DB, learned skills, semantic memory) —
+        # and a reload mid-request (e.g. an SSE research stream) hangs the server.
+        from pathlib import Path
+        root = Path(__file__).resolve().parent.parent
+        kwargs["reload_dirs"] = [str(root / "app"), str(root / "web")]
+        kwargs["reload_excludes"] = ["*.db", "*.json", "*.log", "*.sqlite*"]
+    uvicorn.run("app.main:app", **kwargs)
 
 
 if __name__ == "__main__":

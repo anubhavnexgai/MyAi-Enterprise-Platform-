@@ -63,7 +63,9 @@ PROVIDERS: dict[str, ProviderSpec] = {
             "openid",
             "email",
             "profile",
-            "https://www.googleapis.com/auth/gmail.readonly",
+            # modify includes read + label changes (archive / mark-read / trash).
+            # readonly alone 403s on every mutation, so request modify.
+            "https://www.googleapis.com/auth/gmail.modify",
             "https://www.googleapis.com/auth/gmail.send",
         ],
         client_id_env="GOOGLE_CLIENT_ID",
@@ -130,10 +132,15 @@ PROVIDERS: dict[str, ProviderSpec] = {
         display_name="Microsoft 365",
         description="Outlook mail, Calendar, OneDrive — one connection for M365.",
         icon="M365",
-        authorize_url="https://login.microsoftonline.com/common/oauth2/v2.0/authorize",
-        token_url="https://login.microsoftonline.com/common/oauth2/v2.0/token",
+        # Single-tenant app → use the tenant-specific endpoint (falls back to /common/
+        # only if MICROSOFT_TENANT_ID is unset, which a single-tenant app would reject).
+        authorize_url=f"https://login.microsoftonline.com/{os.environ.get('MICROSOFT_TENANT_ID') or 'common'}/oauth2/v2.0/authorize",
+        token_url=f"https://login.microsoftonline.com/{os.environ.get('MICROSOFT_TENANT_ID') or 'common'}/oauth2/v2.0/token",
         revoke_url=None,
         userinfo_url="https://graph.microsoft.com/v1.0/me",
+        # Kept to what's user-consentable in the NexgAI tenant (no admin consent).
+        # offline_access → refresh tokens (persistent connection). Mail.Send and
+        # Files.Read.All are intentionally omitted; add them here once granted in Azure.
         scopes=[
             "openid",
             "email",
@@ -141,9 +148,7 @@ PROVIDERS: dict[str, ProviderSpec] = {
             "offline_access",
             "User.Read",
             "Mail.Read",
-            "Mail.Send",
             "Calendars.ReadWrite",
-            "Files.Read.All",
         ],
         client_id_env="MICROSOFT_CLIENT_ID",
         client_secret_env="MICROSOFT_CLIENT_SECRET",

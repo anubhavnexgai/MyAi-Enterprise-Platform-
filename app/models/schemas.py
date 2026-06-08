@@ -95,12 +95,64 @@ class ChatRequest(BaseModel):
     stream: bool = False
 
 
+class SendEmailRequest(BaseModel):
+    to: str
+    subject: str
+    body: str = ""
+    confirm: bool = False  # explicit human approval (satisfies L2-L4 gate)
+
+
+class CreateEventRequest(BaseModel):
+    title: str
+    start: str  # ISO-8601, e.g. 2026-05-29T14:00:00-07:00
+    duration_min: int = 30
+    attendees: List[str] = Field(default_factory=list)
+    description: Optional[str] = None
+    confirm: bool = False
+
+
+class SnoozeRequest(BaseModel):
+    until: Optional[str] = None  # ISO-8601; when the item should resurface
+    confirm: bool = False
+
+
+class WriteActionResponse(BaseModel):
+    status: str  # ok | blocked
+    action: str
+    detail: Optional[str] = None
+    result: Optional[str] = None
+    needs_confirmation: bool = False
+    autonomy_level: Optional[int] = None
+
+
+class MailSuggestRequest(BaseModel):
+    subject: str = ""
+    sender: str = ""
+    body: str = ""
+    message_id: Optional[str] = None  # if set, use/refresh the pre-computed cache
+    account: Optional[str] = None     # gmail | outlook
+
+
+class MailSuggestResponse(BaseModel):
+    suggestion: str
+    action: Optional[str] = None  # reply | archive | schedule | pay | ignore | none
+
+
 class ChatResponse(BaseModel):
     reply: str
     tool_calls: List[Dict[str, Any]] = Field(default_factory=list)
     model: Optional[str] = None
     used_fallback: bool = False
     elapsed_ms: int = 0
+    # Correctness spine (Pillar 1): grounding verdict + block-level citations.
+    # grounded ∈ not_required | grounded | no_context | partial | ungrounded | unverified
+    grounded: Optional[str] = None
+    citations: List[Dict[str, str]] = Field(default_factory=list)
+    unsupported_claims: List[str] = Field(default_factory=list)
+    # Multi-agent: which specialists the lead orchestrator used (empty for a
+    # normal single-agent turn).
+    agents_used: List[str] = Field(default_factory=list)
+    orchestrated: bool = False
 
 
 # ----------------------------------------------------------------------------

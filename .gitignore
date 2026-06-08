@@ -27,3 +27,15 @@ tests/_test_*
 *.swp
 .DS_Store
 Thumbs.db
+
+# Odysseus bridge (vendored venv + per-tenant runtime data)
+vendor/odysseus/.venv/
+vendor/odysseus/data/
+data/odysseus/
+
+# Runtime state, logs, test artifacts (regenerated; never commit)
+/data/
+*.log
+ngrok.log
+test_shots/
+browser_test.py

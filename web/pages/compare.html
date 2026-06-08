@@ -1,0 +1,72 @@
+<div class="page-header">
+  <div>
+    <h1 class="page-title">Compare</h1>
+    <div class="page-subtitle">Blind side-by-side — judge two models without bias, then reveal</div>
+  </div>
+</div>
+
+<div class="card card-pad">
+  <div class="ws-row">
+    <label class="ws-field">Model A<select class="ws-input" id="cmpA"></select></label>
+    <label class="ws-field">Model B<select class="ws-input" id="cmpB"></select></label>
+    <label class="ws-field" style="flex:0 0 auto;justify-content:flex-end"><span>&nbsp;</span><label style="display:flex;gap:6px;align-items:center;font-size:13px"><input type="checkbox" id="cmpBlind" checked> Blind</label></label>
+  </div>
+  <label class="ws-field">Prompt<textarea id="cmpPrompt" placeholder="Ask both models the same thing…"></textarea></label>
+  <button class="btn btn-primary" id="cmpRun"><span class="material-symbols-rounded">play_arrow</span> Compare</button>
+</div>
+
+<div class="ws-row" style="margin-top:16px;align-items:stretch">
+  <div class="card card-pad ws-grow" style="min-width:300px"><div style="font-weight:700" id="cmpLabL">Model A</div><div id="cmpOutL" class="ws-chatlog" style="margin-top:8px;min-height:160px;white-space:pre-wrap;font-size:13px"></div></div>
+  <div class="card card-pad ws-grow" style="min-width:300px"><div style="font-weight:700" id="cmpLabR">Model B</div><div id="cmpOutR" class="ws-chatlog" style="margin-top:8px;min-height:160px;white-space:pre-wrap;font-size:13px"></div></div>
+</div>
+<div id="cmpVote" style="display:none;text-align:center;margin-top:14px">
+  <button class="btn" data-w="left">A is better</button>
+  <button class="btn" data-w="tie">Tie</button>
+  <button class="btn" data-w="right">B is better</button>
+</div>
+
+<script>
+(function(){
+  const runBtn=document.getElementById('cmpRun'); if(!runBtn||runBtn.dataset.bound==='1') return; runBtn.dataset.bound='1';
+  const esc=window.escapeHtml, toast=window.toast||console.log;
+  let endpoints=[], curId=null;
+  async function loadModels(){
+    const d=await window.oui.get('/models'); endpoints=(d&&d.items)||[];
+    let opts='';
+    for(const ep of endpoints){ const url=ep.url||ep.endpoint_url; for(const m of (ep.models||[])){ opts+='<option value="'+esc(url)+'|||'+esc(m)+'">'+esc(m)+'</option>'; } }
+    document.getElementById('cmpA').innerHTML=opts; document.getElementById('cmpB').innerHTML=opts;
+    const b=document.getElementById('cmpB'); if(b.options.length>1) b.selectedIndex=1;
+  }
+  async function streamTo(sid, model, prompt, outEl){
+    outEl.textContent=''; let acc='';
+    try{
+      const f=new FormData(); f.append('message',prompt); f.append('session',sid); f.append('mode','chat');
+      const res=await fetch('/api/oui/chat_stream',{method:'POST',credentials:'include',headers:{'X-Tz-Offset':String(-new Date().getTimezoneOffset())},body:f});
+      const rd=res.body.getReader(); const dec=new TextDecoder(); let buf='';
+      while(true){ const {done,value}=await rd.read(); if(done) break; buf+=dec.decode(value,{stream:true}); const lines=buf.split('\n'); buf=lines.pop()||'';
+        for(const line of lines){ if(!line.startsWith('data:')) continue; const dd=line.slice(5).trim(); if(dd==='[DONE]') continue; try{ const j=JSON.parse(dd); if(j.delta){ acc+=j.delta; outEl.textContent=acc; } else if(j.error){ outEl.textContent=acc+'\n['+j.error+']'; } }catch(e){} } }
+      if(!acc) outEl.textContent='(no response)';
+    }catch(e){ outEl.textContent=acc+'\n[stream error]'; }
+  }
+  runBtn.onclick=async()=>{
+    const prompt=document.getElementById('cmpPrompt').value.trim(); if(!prompt){ toast('Enter a prompt','error'); return; }
+    const [ua,ma]=document.getElementById('cmpA').value.split('|||'); const [ub,mb]=document.getElementById('cmpB').value.split('|||');
+    if(!ma||!mb){ toast('Pick two models (add some in Cookbook/Chat first)','error'); return; }
+    const blind=document.getElementById('cmpBlind').checked;
+    const r=await window.oui.postForm('/compare/start',{prompt:prompt,model_a:ma,model_b:mb,endpoint_a:ua,endpoint_b:ub,is_blind:String(blind)});
+    if(!r.ok||!r.json){ toast('Start failed','error'); return; }
+    curId=r.json.id;
+    document.getElementById('cmpLabL').textContent=blind?'Model A':(r.json.model_left||ma);
+    document.getElementById('cmpLabR').textContent=blind?'Model B':(r.json.model_right||mb);
+    document.getElementById('cmpVote').style.display=blind?'block':'none';
+    // In blind mode the server assigns models to sessions; we stream the same prompt to both sessions.
+    streamTo(r.json.session_left, ma, prompt, document.getElementById('cmpOutL'));
+    streamTo(r.json.session_right, mb, prompt, document.getElementById('cmpOutR'));
+  };
+  document.getElementById('cmpVote').querySelectorAll('button').forEach(b=>b.onclick=async()=>{
+    if(!curId) return; const r=await window.oui.postForm('/compare/'+curId+'/vote',{winner:b.dataset.w});
+    if(r.ok&&r.json){ const rev=r.json.revealed||{}; document.getElementById('cmpLabL').textContent=(rev.left||r.json.model_a)+' (A)'; document.getElementById('cmpLabR').textContent=(rev.right||r.json.model_b)+' (B)'; document.getElementById('cmpVote').style.display='none'; toast('Revealed!','success'); }
+  });
+  loadModels();
+})();
+</script>

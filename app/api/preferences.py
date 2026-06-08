@@ -108,7 +108,9 @@ def autonomy_allows(level: int, action: str) -> tuple[bool, str]:
     """
     low_risk = {"draft", "list", "search", "summarize", "read", "open"}
     medium_risk = {"approve", "tag", "snooze", "schedule"}
-    high_risk = {"send", "delete", "cancel", "transfer", "pay"}
+    # "control" = directly driving the user's mouse/keyboard (computer use) —
+    # the highest-risk category, so it only auto-runs at L5 like send/delete.
+    high_risk = {"send", "delete", "cancel", "transfer", "pay", "control"}
 
     if level <= 1:
         if action in low_risk:
@@ -129,3 +131,25 @@ def autonomy_allows(level: int, action: str) -> tuple[bool, str]:
         return True, "L4 Guarded Auto"
     # L5
     return True, "L5 Autonomous"
+
+
+def decide_write_gate(
+    level: int, action: str, confirmed: bool
+) -> tuple[bool, bool, str]:
+    """Gate a user-facing write action, honouring explicit human confirmation.
+
+    Pure decision (no DB) so it can be unit/eval-tested. Returns
+    ``(allowed, needs_confirmation, reason)``:
+
+    - If the autonomy level already permits the action  -> allowed, no confirm.
+    - Else if the user explicitly confirmed AND we're past L1 Observe, the
+      confirmation IS the approval the ladder asks for at L2-L4 -> allowed.
+    - Else blocked. ``needs_confirmation`` tells the UI whether offering a
+      confirm dialog would unblock it (true at L2+, false at L1 read-only).
+    """
+    ok, reason = autonomy_allows(level, action)
+    if ok:
+        return True, False, reason
+    if level >= 2 and confirmed:
+        return True, False, f"approved by explicit confirmation at L{level}"
+    return False, level >= 2, reason

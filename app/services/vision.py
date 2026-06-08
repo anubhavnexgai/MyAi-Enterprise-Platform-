@@ -144,6 +144,9 @@ def _describe_via_ocr(image_bytes: bytes) -> Optional[str]:
         import pytesseract  # type: ignore
         import io as _io
 
+        from app.services.computer_use import configure_tesseract
+        configure_tesseract()  # resolve the Windows binary path (not on PATH)
+
         img = Image.open(_io.BytesIO(image_bytes))
         text = pytesseract.image_to_string(img)
         text = (text or "").strip()
@@ -199,6 +202,8 @@ def _try_ocr() -> bool:
     try:
         import pytesseract  # type: ignore
 
+        from app.services.computer_use import configure_tesseract
+        configure_tesseract()
         pytesseract.get_tesseract_version()
         return True
     except Exception:

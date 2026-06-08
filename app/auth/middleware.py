@@ -37,6 +37,9 @@ PUBLIC_PREFIXES: tuple[str, ...] = (
     "/api/auth/sso/callback",
     "/api/auth/sso/logout",
     "/api/auth/dev-login",
+    "/api/auth/login",
+    "/api/auth/logout",
+    "/api/auth/demo-accounts",
 )
 
 # Exact public paths (the SPA shell + page fragments need to load before login)
@@ -55,7 +58,7 @@ def _is_public(path: str, extra_prefixes: Iterable[str] = ()) -> bool:
         if path.startswith(prefix):
             return True
     # The SPA loads `/pages/*.html` and `/app.js` directly off the web root
-    if path.startswith("/pages/") or path in {"/app.js", "/styles.css"}:
+    if path.startswith("/pages/") or path in {"/app.js", "/styles.css", "/sw.js", "/manifest.json"}:
         return True
     return False
 

@@ -90,7 +90,11 @@ async def _tick_for_tenant(tenant_id: str) -> int:
                     # Use default-by-priority and persist it on first sight so
                     # the UI can show a real countdown.
                     t.due_at = default_due_at(t.priority, t.created_at)
-                    t.sla_minutes = int((t.due_at - (t.created_at or now)).total_seconds() / 60)
+                    base = t.created_at or now
+                    if base.tzinfo is None:
+                        base = base.replace(tzinfo=timezone.utc)
+                    due_aware = t.due_at if t.due_at.tzinfo else t.due_at.replace(tzinfo=timezone.utc)
+                    t.sla_minutes = int((due_aware - base).total_seconds() / 60)
 
             due = t.due_at
             if due.tzinfo is None:
@@ -154,6 +158,14 @@ async def lifecycle_loop() -> None:
                         logger.warning("Lifecycle tick: %d breach(es) on %s", breaches, tenant_id)
                 except Exception as exc:
                     logger.exception("Lifecycle tick failed for %s: %s", tenant_id, exc)
+                # Send any due scheduled emails for this tenant.
+                try:
+                    from app.api.inbox import send_due_scheduled_emails
+                    n = await send_due_scheduled_emails(tenant_id)
+                    if n:
+                        logger.info("Sent %d scheduled email(s) for %s", n, tenant_id)
+                except Exception as exc:  # noqa: BLE001
+                    logger.warning("scheduled-email send failed for %s: %s", tenant_id, exc)
         except Exception as exc:
             logger.exception("Lifecycle outer tick failed: %s", exc)
 

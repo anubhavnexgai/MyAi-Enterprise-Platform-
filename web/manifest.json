@@ -1,0 +1,13 @@
+{
+  "name": "MyAi for NexgAI",
+  "short_name": "MyAi",
+  "description": "MyAi — enterprise AI copilot, chat, documents, email, calendar and more.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#F7F8FA",
+  "theme_color": "#0891B2",
+  "icons": [
+    { "src": "/static/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
+  ]
+}

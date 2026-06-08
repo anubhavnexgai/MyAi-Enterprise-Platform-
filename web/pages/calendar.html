@@ -1,0 +1,108 @@
+<div class="page-header">
+  <div>
+    <h1 class="page-title">Calendar</h1>
+    <div class="page-subtitle">Your connected Google / Outlook calendar</div>
+  </div>
+  <div style="display:flex;gap:8px;align-items:center">
+    <button class="btn" id="calToday">Today</button>
+    <button class="icon-btn" id="calPrev"><span class="material-symbols-rounded">chevron_left</span></button>
+    <div id="calMonth" style="font-weight:700;color:var(--text-strong);min-width:150px;text-align:center"></div>
+    <button class="icon-btn" id="calNext"><span class="material-symbols-rounded">chevron_right</span></button>
+    <button class="btn" id="calRefresh"><span class="material-symbols-rounded">refresh</span></button>
+    <button class="btn btn-primary" id="calNew"><span class="material-symbols-rounded">add</span> New event</button>
+  </div>
+</div>
+
+<div class="cal-grid-head">
+  <div>Sun</div><div>Mon</div><div>Tue</div><div>Wed</div><div>Thu</div><div>Fri</div><div>Sat</div>
+</div>
+<div class="cal-grid" id="calGrid"></div>
+
+<style>
+.cal-grid-head{display:grid;grid-template-columns:repeat(7,1fr);gap:6px;margin-bottom:6px}
+.cal-grid-head div{font-size:11px;text-transform:uppercase;letter-spacing:.04em;color:var(--text-soft);text-align:center;font-weight:600}
+.cal-grid{display:grid;grid-template-columns:repeat(7,1fr);grid-auto-rows:minmax(110px,1fr);gap:6px}
+.cal-cell{border:1px solid var(--border);border-radius:var(--r);background:var(--bg-elev);padding:6px;overflow:hidden;display:flex;flex-direction:column;gap:3px;cursor:pointer;transition:border-color .12s,box-shadow .12s}
+.cal-cell:hover{border-color:var(--accent);box-shadow:var(--shadow-sm)}
+.cal-more{font-size:11px;color:var(--text-muted);cursor:pointer;padding-left:2px}
+.cal-more:hover{color:var(--accent)}
+.cal-cell.other{opacity:.45}
+.cal-daynum{font-size:12px;color:var(--text-muted);font-weight:600;align-self:flex-end}
+.cal-cell.today{border-color:var(--accent);box-shadow:inset 0 0 0 1px var(--accent)}
+.cal-cell.today .cal-daynum{color:var(--accent)}
+.cal-ev{font-size:11px;color:#fff;border-radius:4px;padding:2px 6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;cursor:pointer}
+</style>
+
+<script>
+(function(){
+  const grid=document.getElementById('calGrid'); if(!grid||grid.dataset.bound==='1') return; grid.dataset.bound='1';
+  const esc=window.escapeHtml, toast=window.toast||console.log;
+  let cur=new Date(); cur.setDate(1); let byDay={};
+  const MON=['January','February','March','April','May','June','July','August','September','October','November','December'];
+  const key=d=>d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+  // Google/Outlook return a full ISO timestamp carrying its own tz offset
+  // (e.g. "...T15:00:00Z" = 8:30pm IST). Parse it and render in the user's
+  // local timezone instead of blindly slicing the UTC clock out of the string.
+  // All-day events arrive as a bare date ("2026-09-04", no "T") — keep those
+  // literal so they don't get shifted across a day boundary.
+  const isAllDay=s=>typeof s==='string'&&s.length===10&&s.indexOf('T')===-1;
+  const evKey=s=>{ if(isAllDay(s)) return s; const d=new Date(s); return isNaN(d)?String(s).slice(0,10):key(d); };
+  const evTime=s=>{ if(!s||isAllDay(s)) return ''; const d=new Date(s); return isNaN(d)?String(s).slice(11,16):d.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}); };
+  const evWhen=s=>{ if(!s) return ''; if(isAllDay(s)) return s; const d=new Date(s); return isNaN(d)?String(s).replace('T',' ').slice(0,16):(d.toLocaleDateString()+' '+evTime(s)); };
+
+  async function loadEvents(force){
+    if(force){ try{ await fetch('/api/inbox/refresh',{method:'POST',credentials:'include'}); }catch(e){} }
+    // Fetch from today through the end of the month being viewed (+1 week buffer)
+    // so navigating forward to future months actually loads their events.
+    const endView=new Date(cur.getFullYear(), cur.getMonth()+1, 7);
+    let days=Math.ceil((endView-new Date())/86400000);
+    days=Math.max(70, Math.min(days, 366));
+    const d=await window.safeFetchJson('/api/inbox/calendar/events?days_ahead='+days); const evs=(d&&d.events)||[]; byDay={};
+    for(const ev of evs){ const s=ev.start; if(!s) continue; const k=evKey(s); (byDay[k]=byDay[k]||[]).push(ev); }
+    render();
+  }
+  function render(){
+    document.getElementById('calMonth').textContent=MON[cur.getMonth()]+' '+cur.getFullYear();
+    grid.innerHTML=''; const first=new Date(cur); const startDow=first.getDay(); const start=new Date(first); start.setDate(1-startDow);
+    const todayK=key(new Date());
+    for(let i=0;i<42;i++){ const day=new Date(start); day.setDate(start.getDate()+i); const k=key(day); const other=day.getMonth()!==cur.getMonth();
+      const cell=document.createElement('div'); cell.className='cal-cell'+(other?' other':'')+(k===todayK?' today':'');
+      const num=document.createElement('div'); num.className='cal-daynum'; num.textContent=day.getDate(); cell.appendChild(num);
+      const evs=byDay[k]||[]; const shown=evs.slice(0,3);
+      for(const ev of shown){ const col=(ev.account==='outlook')?'#3B82F6':'#0891B2'; const chip=document.createElement('div'); chip.className='cal-ev'; chip.style.background=col; const tm=evTime(ev.start); chip.textContent=(tm?tm+' ':'')+(ev.title||'(busy)'); chip.title=(ev.title||'')+(ev.location?(' @ '+ev.location):''); chip.onclick=(e)=>{ e.stopPropagation(); detail(ev); }; cell.appendChild(chip); }
+      if(evs.length>3){ const more=document.createElement('div'); more.className='cal-more'; more.textContent='+'+(evs.length-3)+' more'; more.onclick=(e)=>{ e.stopPropagation(); dayModal(day, evs); }; cell.appendChild(more); }
+      // Click empty space in the cell → quick-add an event on that day
+      const dk=new Date(day); cell.onclick=()=>newEvent(dk);
+      grid.appendChild(cell);
+    }
+  }
+  function detail(ev){
+    window.openModal('<div class="modal-head"><h3>'+esc(ev.title||'(busy)')+'</h3><button class="icon-btn" data-close><span class="material-symbols-rounded">close</span></button></div>'+
+      '<div class="modal-body"><div style="font-size:13px"><b>When:</b> '+esc(evWhen(ev.start))+(ev.end?(' → '+esc(evTime(ev.end))):'')+'</div>'+
+      (ev.location?'<div style="font-size:13px;margin-top:6px"><b>Where:</b> '+esc(ev.location)+'</div>':'')+
+      (ev.attendee_count?'<div style="font-size:13px;margin-top:6px"><b>Attendees:</b> '+ev.attendee_count+'</div>':'')+
+      '<div style="font-size:12px;color:var(--text-soft);margin-top:8px">'+(ev.account==='outlook'?'Outlook':'Google')+'</div></div>'+
+      '<div class="modal-foot"><button class="btn" data-close>Close</button></div>');
+  }
+  document.getElementById('calPrev').onclick=()=>{ cur.setMonth(cur.getMonth()-1); render(); loadEvents(); };
+  document.getElementById('calNext').onclick=()=>{ cur.setMonth(cur.getMonth()+1); render(); loadEvents(); };
+  document.getElementById('calToday').onclick=()=>{ cur=new Date(); cur.setDate(1); render(); loadEvents(); };
+  document.getElementById('calRefresh').onclick=()=>loadEvents(true);
+  function dayModal(day, evs){
+    const ttl=day.toLocaleDateString(undefined,{weekday:'long',month:'long',day:'numeric'});
+    window.openModal('<div class="modal-head"><h3>'+esc(ttl)+'</h3><button class="icon-btn" data-close><span class="material-symbols-rounded">close</span></button></div>'+
+      '<div class="modal-body">'+evs.map(ev=>'<div class="card card-pad" style="margin-bottom:6px;border-left:3px solid '+(ev.account==='outlook'?'#3B82F6':'#0891B2')+'"><b style="color:var(--text-strong)">'+esc(ev.title||'(busy)')+'</b><div class="ws-item-sub" style="margin-top:2px">'+esc(evWhen(ev.start))+(ev.location?(' · '+esc(ev.location)):'')+'</div></div>').join('')+'</div>'+
+      '<div class="modal-foot"><button class="btn btn-primary" id="dmAdd">+ Add event</button><button class="btn" data-close>Close</button></div>');
+    document.getElementById('dmAdd').onclick=()=>newEvent(day);
+  }
+  function newEvent(d){
+    let dval=''; if(d){ const dd=new Date(d); const pad=n=>String(n).padStart(2,'0'); dval=dd.getFullYear()+'-'+pad(dd.getMonth()+1)+'-'+pad(dd.getDate())+'T09:00'; }
+    window.openModal('<div class="modal-head"><h3>New event</h3><button class="icon-btn" data-close><span class="material-symbols-rounded">close</span></button></div>'+
+      '<div class="modal-body"><label class="ws-field">Title<input id="evT"></label><div class="ws-row"><label class="ws-field">Start<input id="evS" type="datetime-local" value="'+dval+'"></label><label class="ws-field">Duration (min)<input id="evDur" type="number" value="30"></label></div><label class="ws-field">Attendees (comma emails)<input id="evA"></label><label class="ws-field">Description<textarea id="evD" style="min-height:60px"></textarea></label></div>'+
+      '<div class="modal-foot"><button class="btn" data-close>Cancel</button><button class="btn btn-primary" id="evSave">Create</button></div>');
+    document.getElementById('evSave').onclick=async()=>{ const s=document.getElementById('evS').value; if(!s){ toast('Pick a start','error'); return; } const att=document.getElementById('evA').value.split(',').map(x=>x.trim()).filter(Boolean); const r=await window.safeFetchJson('/api/inbox/calendar/create',{method:'POST',body:{title:document.getElementById('evT').value,start:new Date(s).toISOString(),duration_min:parseInt(document.getElementById('evDur').value||'30'),attendees:att,description:document.getElementById('evD').value,confirm:true}}); if(r&&r.status==='ok'){ window.closeModal(); toast('Event created','success'); loadEvents(true); } else toast('Create failed (autonomy / calendar connection)','error'); };
+  }
+  document.getElementById('calNew').onclick=()=>newEvent();
+  loadEvents(false);
+})();
+</script>

@@ -46,7 +46,7 @@ async def outlook_messages_structured(
     if unread_only:
         filters.append("isRead eq false")
     params: dict[str, Any] = {
-        "$top": str(max(1, min(int(limit), 30))),
+        "$top": str(max(1, min(int(limit), 100))),
         "$orderby": "receivedDateTime desc",
         "$select": "id,subject,from,receivedDateTime,bodyPreview,isRead,conversationId",
     }
@@ -169,6 +169,60 @@ async def outlook_archive(user_id: str, message_id: str, tenant_id: str = "nexga
         return f"Outlook archive failed: {exc}"
 
 
+async def outlook_send(
+    user_id: str,
+    to: str,
+    subject: str,
+    body: str,
+    tenant_id: str = "nexgai",
+) -> str:
+    """Send an email via the user's Outlook (Microsoft Graph sendMail)."""
+    tok, err = await _token(user_id, tenant_id)
+    if err:
+        return err
+    if not to or not subject:
+        return "Cannot send: 'to' and 'subject' are required."
+    recipients = [
+        {"emailAddress": {"address": addr.strip()}}
+        for addr in re.split(r"[,;]", to)
+        if addr.strip()
+    ]
+    payload = {
+        "message": {
+            "subject": subject,
+            "body": {"contentType": "Text", "content": body or ""},
+            "toRecipients": recipients,
+        },
+        "saveToSentItems": True,
+    }
+    headers = {"Authorization": f"Bearer {tok}", "Content-Type": "application/json"}
+    try:
+        async with httpx.AsyncClient(timeout=20.0) as client:
+            r = await client.post(f"{GRAPH}/me/sendMail", headers=headers, json=payload)
+            if r.status_code >= 400:
+                return f"Outlook send failed ({r.status_code}): {r.text[:200]}"
+        return f"Email sent to {to}."
+    except Exception as exc:
+        logger.exception("outlook_send failed")
+        return f"Outlook send failed: {exc}"
+
+
+async def outlook_delete(user_id: str, message_id: str, tenant_id: str = "nexgai") -> str:
+    """Delete an Outlook message (moves to Deleted Items, recoverable)."""
+    tok, err = await _token(user_id, tenant_id)
+    if err:
+        return err
+    headers = {"Authorization": f"Bearer {tok}"}
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            r = await client.delete(f"{GRAPH}/me/messages/{message_id}", headers=headers)
+            if r.status_code >= 400:
+                return f"Outlook delete failed ({r.status_code}): {r.text[:200]}"
+        return "OK"
+    except Exception as exc:
+        return f"Outlook delete failed: {exc}"
+
+
 async def outlook_calendar_events(
     user_id: str, days_ahead: int = 7, tenant_id: str = "nexgai"
 ) -> list[dict]:
@@ -176,7 +230,7 @@ async def outlook_calendar_events(
     tok, err = await _token(user_id, tenant_id)
     if err:
         return []
-    days_ahead = max(1, min(int(days_ahead), 60))
+    days_ahead = max(1, min(int(days_ahead), 366))
     now = datetime.now(timezone.utc)
     end = now + timedelta(days=days_ahead)
     headers = {
@@ -188,7 +242,7 @@ async def outlook_calendar_events(
         "endDateTime": end.isoformat().replace("+00:00", "Z"),
         "$select": "id,subject,start,end,location,attendees,webLink",
         "$orderby": "start/dateTime",
-        "$top": "50",
+        "$top": "250",
     }
     try:
         async with httpx.AsyncClient(timeout=20.0) as client:
@@ -198,10 +252,21 @@ async def outlook_calendar_events(
             if r.status_code >= 400:
                 return []
             items = r.json().get("value", []) or []
+        def _zulu(s: str) -> str:
+            # Graph returns UTC dateTimes as naive strings (no offset) because we
+            # send Prefer: outlook.timezone="UTC". Mark them as UTC ('Z') and trim
+            # the 7-digit fraction so the browser converts to the user's local time
+            # (else "15:00" UTC renders as 15:00 instead of 8:30pm IST).
+            if not s:
+                return s
+            t = s.split("T")[-1]
+            if "Z" in t or "+" in t or "-" in t:
+                return s
+            return s.split(".")[0] + "Z"
         out: list[dict] = []
         for ev in items:
-            start = (ev.get("start") or {}).get("dateTime", "")
-            end_ = (ev.get("end") or {}).get("dateTime", "")
+            start = _zulu((ev.get("start") or {}).get("dateTime", ""))
+            end_ = _zulu((ev.get("end") or {}).get("dateTime", ""))
             loc = (ev.get("location") or {}).get("displayName", "")
             out.append({
                 "id": ev.get("id"),

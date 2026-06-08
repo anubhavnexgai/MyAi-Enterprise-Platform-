@@ -3,6 +3,7 @@
 from fastapi import FastAPI
 
 from app.api import (
+    admin,
     auth_routes,
     connectors,
     copilot,
@@ -30,6 +31,7 @@ def register(app: FastAPI) -> None:
     app.include_router(preferences.router)
     app.include_router(threads.router)
     app.include_router(insights.router)
+    app.include_router(admin.router)
 
 
 __all__ = ["register"]

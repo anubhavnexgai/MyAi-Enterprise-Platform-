@@ -1,0 +1,68 @@
+<div class="page-header">
+  <div>
+    <h1 class="page-title">Memory &amp; Skills</h1>
+    <div class="page-subtitle">What MyAi remembers about you, and the skills it has learned</div>
+  </div>
+  <div style="display:flex;gap:8px">
+    <button class="btn" id="memTab" data-on="1">Memories</button>
+    <button class="btn" id="skTab">Skills</button>
+  </div>
+</div>
+
+<div id="memPane">
+  <div class="ws-toolbar">
+    <input class="ws-input ws-grow" id="memSearch" placeholder="Search memories…">
+    <button class="btn btn-primary" id="memAdd"><span class="material-symbols-rounded">add</span> Add memory</button>
+  </div>
+  <div id="memList" class="ws-grid"></div>
+</div>
+
+<div id="skPane" style="display:none">
+  <div id="skList" class="ws-grid"></div>
+</div>
+
+<script>
+(function(){
+  const memPane=document.getElementById('memPane'); if(!memPane||memPane.dataset.bound==='1') return; memPane.dataset.bound='1';
+  const esc=window.escapeHtml, toast=window.toast||console.log;
+  const skPane=document.getElementById('skPane');
+  document.getElementById('memTab').onclick=()=>{ memPane.style.display=''; skPane.style.display='none'; };
+  document.getElementById('skTab').onclick=()=>{ memPane.style.display='none'; skPane.style.display=''; loadSkills(); };
+
+  async function loadMem(q){
+    let mem;
+    if(q){ const r=await window.oui.postForm('/memory/search',{query:q}); mem=(r.json&&r.json.memories)||[]; }
+    else { const d=await window.oui.get('/memory'); mem=(d&&d.memory)||[]; }
+    const el=document.getElementById('memList');
+    if(!mem.length){ el.innerHTML='<div class="ws-empty">No memories.</div>'; return; }
+    el.innerHTML='';
+    for(const m of mem){
+      const c=document.createElement('div'); c.className='card card-pad';
+      c.innerHTML='<div style="font-size:13px;color:var(--text)">'+esc(m.text||'')+'</div><div class="ws-item-sub" style="margin-top:8px">'+esc(m.category||'general')+'</div>';
+      const del=document.createElement('button'); del.className='icon-btn'; del.style.cssText='position:absolute;top:8px;right:8px'; del.innerHTML='<span class="material-symbols-rounded" style="font-size:18px">delete</span>';
+      c.style.position='relative'; del.onclick=async()=>{ await window.oui.del('/memory/'+m.id); loadMem(document.getElementById('memSearch').value.trim()); }; c.appendChild(del);
+      el.appendChild(c);
+    }
+  }
+  let t; document.getElementById('memSearch').oninput=e=>{ clearTimeout(t); t=setTimeout(()=>loadMem(e.target.value.trim()),300); };
+  document.getElementById('memAdd').onclick=()=>{
+    window.openModal('<div class="modal-head"><h3>Add memory</h3><button class="icon-btn" data-close><span class="material-symbols-rounded">close</span></button></div>'+
+      '<div class="modal-body"><label class="ws-field">Memory<textarea id="mText" placeholder="e.g. Prefers concise answers"></textarea></label><label class="ws-field">Category<input id="mCat" value="general"></label></div>'+
+      '<div class="modal-foot"><button class="btn" data-close>Cancel</button><button class="btn btn-primary" id="mSave">Save</button></div>');
+    document.getElementById('mSave').onclick=async()=>{ const r=await window.oui.postJson('/memory/add',{text:document.getElementById('mText').value,category:document.getElementById('mCat').value}); if(r.ok){ window.closeModal(); toast('Saved','success'); loadMem(); } else toast('Failed','error'); };
+  };
+
+  async function loadSkills(){
+    const d=await window.oui.get('/skills'); const sk=(d&&d.skills)||[]; const el=document.getElementById('skList');
+    if(!sk.length){ el.innerHTML='<div class="ws-empty">No learned skills yet. MyAi distills skills from successful agent runs.</div>'; return; }
+    el.innerHTML='';
+    for(const s of sk){
+      const c=document.createElement('div'); c.className='card card-pad';
+      c.innerHTML='<div style="font-weight:700;color:var(--text-strong)">'+esc(s.name||'skill')+'</div><div style="font-size:12px;color:var(--text-muted);margin-top:4px">'+esc(s.description||s.when_to_use||'')+'</div>'+
+        '<div class="ws-item-sub" style="margin-top:8px">'+esc(s.category||'')+(s.uses?(' · used '+s.uses+'×'):'')+'</div>';
+      el.appendChild(c);
+    }
+  }
+  loadMem();
+})();
+</script>

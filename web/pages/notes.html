@@ -1,0 +1,134 @@
+<div class="page-header">
+  <div>
+    <h1 class="page-title">Notes</h1>
+    <div class="page-subtitle">Quick notes, checklists &amp; reminders — your agent can act on them</div>
+  </div>
+  <div style="display:flex;gap:8px;align-items:center">
+    <div class="nt-filters" id="ntFilters">
+      <button class="nt-chip active" data-f="all">All</button>
+      <button class="nt-chip" data-f="reminders">Reminders</button>
+      <button class="nt-chip" data-f="archived">Archived</button>
+    </div>
+    <button class="icon-btn" id="ntViewToggle" title="Grid / list"><span class="material-symbols-rounded">grid_view</span></button>
+  </div>
+</div>
+
+<!-- Composer -->
+<div class="nt-composer" id="ntComposer">
+  <div class="nt-collapsed" id="ntCollapsed">
+    <span class="material-symbols-rounded" style="color:var(--text-soft)">edit_note</span>
+    <input id="ntQuick" placeholder="Take a note…" readonly>
+  </div>
+  <div class="nt-full" id="ntFull" style="display:none">
+    <input id="ntTitle" class="nt-title-in" placeholder="Title">
+    <div id="ntNoteBody"><textarea id="ntContent" placeholder="Note…"></textarea></div>
+    <div id="ntTodoBody" style="display:none"></div>
+    <div class="nt-row2">
+      <div class="nt-typetoggle"><button data-t="note" class="active">Note</button><button data-t="todo">To-do</button></div>
+      <div class="nt-swatches" id="ntSwatches"></div>
+      <input id="ntTags" class="nt-tags-in" placeholder="#tags">
+      <input id="ntDue" type="datetime-local" class="nt-due-in" title="Reminder">
+      <span class="ws-grow"></span>
+      <button class="btn btn-sm" id="ntCancel">Cancel</button>
+      <button class="btn btn-sm btn-primary" id="ntSave">Save</button>
+    </div>
+  </div>
+</div>
+
+<div id="nt-board"></div>
+
+<style>
+.nt-filters{display:flex;gap:6px}
+.nt-chip{border:1px solid var(--border);background:var(--bg-elev);color:var(--text-muted);border-radius:var(--r-pill);padding:4px 12px;font-size:12px;font-weight:600;cursor:pointer}
+.nt-chip.active{background:var(--accent);color:#fff;border-color:var(--accent)}
+.nt-composer{max-width:640px;margin:0 auto 22px;border:1px solid var(--border);border-radius:var(--r-md);background:var(--bg-elev);box-shadow:var(--shadow-sm)}
+.nt-collapsed{display:flex;align-items:center;gap:8px;padding:12px 14px;cursor:text}
+.nt-collapsed input{flex:1;border:0;outline:none;background:transparent;color:var(--text);font:inherit;cursor:text}
+.nt-full{padding:12px 14px;display:flex;flex-direction:column;gap:8px;animation:ui-fadein .15s ease}
+.nt-title-in{border:0;outline:none;background:transparent;font-weight:700;font-size:15px;color:var(--text-strong)}
+.nt-full textarea{border:0;outline:none;resize:vertical;min-height:60px;background:transparent;color:var(--text);font:inherit}
+.nt-row2{display:flex;align-items:center;gap:8px;flex-wrap:wrap;border-top:1px solid var(--border);padding-top:8px}
+.nt-typetoggle{display:flex;border:1px solid var(--border);border-radius:var(--r-pill);overflow:hidden}
+.nt-typetoggle button{border:0;background:transparent;color:var(--text-muted);padding:4px 10px;font-size:12px;font-weight:600;cursor:pointer}
+.nt-typetoggle button.active{background:var(--accent);color:#fff}
+.nt-swatches{display:flex;gap:5px}
+.nt-sw{width:20px;height:20px;border-radius:50%;border:1px solid var(--border);cursor:pointer}
+.nt-sw.sel{outline:2px solid var(--text-strong);outline-offset:1px}
+.nt-tags-in,.nt-due-in{border:1px solid var(--border);border-radius:var(--r);padding:5px 8px;font:inherit;font-size:12px;color:var(--text);background:var(--bg-elev)}
+.nt-tags-in{width:110px}
+.nt-todo-item{display:flex;gap:6px;align-items:center;margin:3px 0}
+.nt-todo-item input[type=text]{flex:1;border:0;border-bottom:1px solid var(--border);outline:none;background:transparent;color:var(--text);font:inherit;padding:2px}
+#nt-board{column-count:4;column-gap:14px}
+#nt-board.list{column-count:1;max-width:640px;margin:0 auto}
+@media(max-width:1300px){#nt-board{column-count:3}}
+@media(max-width:900px){#nt-board{column-count:2}}
+@media(max-width:560px){#nt-board{column-count:1}}
+.nt-card{break-inside:avoid;border:1px solid var(--border);border-radius:var(--r-md);padding:12px 14px;margin:0 0 14px;position:relative;box-shadow:var(--shadow-xs);animation:ui-fadein .22s ease both}
+.nt-card:hover{box-shadow:var(--shadow-md)}
+.nt-card .nt-acts{position:absolute;top:8px;right:8px;display:none;gap:2px}
+.nt-card:hover .nt-acts{display:flex}
+.nt-acts .icon-btn .material-symbols-rounded{font-size:18px}
+.nt-ttl{font-weight:700;color:var(--text-strong);padding-right:60px}
+.nt-bd{font-size:13px;color:var(--text);margin-top:6px;white-space:pre-wrap}
+.nt-chk{display:flex;gap:6px;align-items:flex-start;font-size:13px;margin-top:6px}
+.nt-due{display:inline-flex;align-items:center;gap:4px;font-size:11px;color:var(--text-muted);margin-top:10px;background:var(--bg-subtle);padding:2px 8px;border-radius:var(--r-pill)}
+.nt-tagrow{margin-top:8px}
+.nt-pin{position:absolute;top:8px;left:10px;color:var(--accent);font-size:16px}
+</style>
+
+<script>
+(function(){
+  const board=document.getElementById('nt-board'); if(!board||board.dataset.bound==='1') return; board.dataset.bound='1';
+  const esc=window.escapeHtml, toast=window.toast||console.log;
+  const COLORS={'':'var(--bg-elev)','#FEF9C3':'#FEF9C3','#D1FAE5':'#D1FAE5','#DBEAFE':'#DBEAFE','#FEE2E2':'#FEE2E2','#EDE9FE':'#EDE9FE','#FCE7F3':'#FCE7F3','#FEF3C7':'#FEF3C7'};
+  let notes=[], filter='all', ctype='note', ccolor='', citems=[];
+
+  // view toggle
+  document.getElementById('ntViewToggle').onclick=()=>{ board.classList.toggle('list'); document.getElementById('ntViewToggle').querySelector('.material-symbols-rounded').textContent=board.classList.contains('list')?'view_agenda':'grid_view'; };
+  document.getElementById('ntFilters').querySelectorAll('.nt-chip').forEach(c=>c.onclick=()=>{ document.getElementById('ntFilters').querySelectorAll('.nt-chip').forEach(x=>x.classList.remove('active')); c.classList.add('active'); filter=c.dataset.f; load(); });
+
+  // composer
+  const full=document.getElementById('ntFull'), collapsed=document.getElementById('ntCollapsed');
+  document.getElementById('ntSwatches').innerHTML=Object.keys(COLORS).map(c=>'<div class="nt-sw'+(c===''?' sel':'')+'" data-c="'+c+'" style="background:'+COLORS[c]+'"></div>').join('');
+  document.getElementById('ntSwatches').querySelectorAll('.nt-sw').forEach(s=>s.onclick=()=>{ document.getElementById('ntSwatches').querySelectorAll('.nt-sw').forEach(x=>x.classList.remove('sel')); s.classList.add('sel'); ccolor=s.dataset.c; });
+  document.querySelectorAll('.nt-typetoggle button').forEach(b=>b.onclick=()=>{ document.querySelectorAll('.nt-typetoggle button').forEach(x=>x.classList.remove('active')); b.classList.add('active'); ctype=b.dataset.t; document.getElementById('ntNoteBody').style.display=ctype==='note'?'':'none'; document.getElementById('ntTodoBody').style.display=ctype==='todo'?'':'none'; if(ctype==='todo'&&!citems.length) addItem(); });
+  collapsed.onclick=()=>{ collapsed.style.display='none'; full.style.display='flex'; document.getElementById('ntTitle').focus(); };
+  document.getElementById('ntCancel').onclick=resetComposer;
+  function resetComposer(){ full.style.display='none'; collapsed.style.display='flex'; document.getElementById('ntTitle').value=''; document.getElementById('ntContent').value=''; document.getElementById('ntTags').value=''; document.getElementById('ntDue').value=''; citems=[]; renderItems(); }
+  function addItem(){ citems.push({text:'',done:false}); renderItems(); }
+  function renderItems(){ const el=document.getElementById('ntTodoBody'); el.innerHTML=citems.map((it,i)=>'<div class="nt-todo-item"><input type="checkbox" data-i="'+i+'"><input type="text" data-i="'+i+'" value="'+esc(it.text)+'" placeholder="Item…"></div>').join('')+'<button class="btn btn-sm" id="ntAddItem" style="margin-top:4px"><span class="material-symbols-rounded">add</span>Item</button>'; const add=document.getElementById('ntAddItem'); if(add) add.onclick=addItem; el.querySelectorAll('input[type=text]').forEach(inp=>inp.oninput=()=>{ citems[+inp.dataset.i].text=inp.value; }); }
+  document.getElementById('ntSave').onclick=async()=>{
+    const title=document.getElementById('ntTitle').value, content=document.getElementById('ntContent').value, due=document.getElementById('ntDue').value, tags=document.getElementById('ntTags').value.trim();
+    const items=citype()==='todo'?citems.filter(x=>x.text.trim()):[];
+    const body={title,note_type:items.length?'checklist':'note',color:ccolor}; if(items.length) body.items=items; else body.content=content; if(due) body.due_date=new Date(due).toISOString(); if(tags) body.label=tags.replace(/^#/,'');
+    const r=await window.oui.postJson('/notes',body); if(r.ok){ toast('Saved','success'); resetComposer(); load(); } else toast('Save failed','error');
+  };
+  function citype(){ return ctype; }
+
+  async function load(){
+    const d=await window.oui.get('/notes'); let arr=(d&&d.notes)||[];
+    if(filter==='archived') arr=arr.filter(n=>n.archived); else arr=arr.filter(n=>!n.archived);
+    if(filter==='reminders') arr=arr.filter(n=>n.due_date);
+    arr.sort((a,b)=>(b.pinned?1:0)-(a.pinned?1:0));
+    if(!arr.length){ board.innerHTML='<div class="ws-empty" style="column-span:all">No notes here.</div>'; return; }
+    board.innerHTML='';
+    for(const n of arr){
+      const card=document.createElement('div'); card.className='nt-card'; card.style.background=COLORS[n.color]||'var(--bg-elev)';
+      let chk=''; if(Array.isArray(n.items)&&n.items.length){ chk=n.items.map((it,i)=>'<label class="nt-chk"><input type="checkbox" data-i="'+i+'" '+(it.done?'checked':'')+'><span style="'+(it.done?'text-decoration:line-through;color:var(--text-soft)':'')+'">'+esc(it.text)+'</span></label>').join(''); }
+      card.innerHTML=(n.pinned?'<span class="material-symbols-rounded nt-pin">push_pin</span>':'')+
+        '<div class="nt-acts"><button class="icon-btn" data-a="pin" title="Pin"><span class="material-symbols-rounded" style="color:'+(n.pinned?'var(--accent)':'var(--text-soft)')+'">push_pin</span></button>'+
+        '<button class="icon-btn" data-a="arch" title="'+(n.archived?'Unarchive':'Archive')+'"><span class="material-symbols-rounded">'+(n.archived?'unarchive':'archive')+'</span></button>'+
+        '<button class="icon-btn" data-a="del"><span class="material-symbols-rounded">delete</span></button></div>'+
+        (n.title?'<div class="nt-ttl">'+esc(n.title)+'</div>':'')+(n.content?'<div class="nt-bd">'+esc(n.content)+'</div>':'')+chk+
+        (n.label?'<div class="nt-tagrow"><span class="ws-tag">#'+esc(n.label)+'</span></div>':'')+
+        (n.due_date?'<div class="nt-due"><span class="material-symbols-rounded" style="font-size:14px">notifications</span>'+esc(String(n.due_date).slice(0,16).replace('T',' '))+'</div>':'');
+      card.querySelector('[data-a="del"]').onclick=async()=>{ await window.oui.del('/notes/'+n.id); load(); };
+      card.querySelector('[data-a="pin"]').onclick=async()=>{ await window.oui.postForm('/notes/'+n.id+'/pin',{pinned:(!n.pinned)}); load(); };
+      card.querySelector('[data-a="arch"]').onclick=async()=>{ await window.oui.postForm('/notes/'+n.id+'/archive',{}); load(); };
+      card.querySelectorAll('input[type=checkbox]').forEach(cb=>cb.onchange=async()=>{ await window.oui.postForm('/notes/'+n.id+'/items/'+cb.dataset.i+'/toggle',{}); });
+      board.appendChild(card);
+    }
+  }
+  load();
+})();
+</script>

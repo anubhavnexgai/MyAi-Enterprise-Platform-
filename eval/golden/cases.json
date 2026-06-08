@@ -1,0 +1,346 @@
+[
+  {
+    "id": "need-email-summary",
+    "function": "General",
+    "kind": "need",
+    "message": "summarize my unread emails",
+    "expect": {
+      "need": true
+    }
+  },
+  {
+    "id": "need-calendar-tomorrow",
+    "function": "General",
+    "kind": "need",
+    "message": "what meetings do I have tomorrow?",
+    "expect": {
+      "need": true
+    }
+  },
+  {
+    "id": "need-draft-reply",
+    "function": "Sales",
+    "kind": "need",
+    "message": "draft a reply to the email from Priti about the proposal",
+    "expect": {
+      "need": true
+    }
+  },
+  {
+    "id": "need-drive-budget",
+    "function": "Finance",
+    "kind": "need",
+    "message": "find the Q3 budget sheet in my drive",
+    "expect": {
+      "need": true
+    }
+  },
+  {
+    "id": "need-status-update",
+    "function": "Eng",
+    "kind": "need",
+    "message": "draft my weekly status update",
+    "expect": {
+      "need": true
+    }
+  },
+  {
+    "id": "need-haiku-false",
+    "function": "General",
+    "kind": "need",
+    "message": "write me a haiku about the ocean",
+    "expect": {
+      "need": false
+    }
+  },
+  {
+    "id": "need-knowledge-false",
+    "function": "Eng",
+    "kind": "need",
+    "message": "what is retrieval augmented generation?",
+    "expect": {
+      "need": false
+    }
+  },
+  {
+    "id": "need-oauth-false",
+    "function": "Eng",
+    "kind": "need",
+    "message": "explain how OAuth authorization code flow works",
+    "expect": {
+      "need": false
+    }
+  },
+  {
+    "id": "need-translate-false",
+    "function": "General",
+    "kind": "need",
+    "message": "translate 'good morning, nice to meet you' into French",
+    "expect": {
+      "need": false
+    }
+  },
+  {
+    "id": "scrub-name-date",
+    "function": "General",
+    "kind": "scrub",
+    "answer": "Hi [Manager's Name],\n\nHere is my update for [Date].\n\nThanks,\n[Your Name]",
+    "expect": {
+      "no_placeholders": true
+    }
+  },
+  {
+    "id": "scrub-project",
+    "function": "Eng",
+    "kind": "scrub",
+    "answer": "This week I focused on [Project X] and will continue next sprint.",
+    "expect": {
+      "no_placeholders": true
+    }
+  },
+  {
+    "id": "scrub-braces",
+    "function": "General",
+    "kind": "scrub",
+    "answer": "Hello {name}, the {{project}} kickoff is confirmed.",
+    "expect": {
+      "no_placeholders": true
+    }
+  },
+  {
+    "id": "scrub-clean-passthrough",
+    "function": "General",
+    "kind": "scrub",
+    "answer": "Hi Manager, here is my update for this week. Thanks, Alex.",
+    "expect": {
+      "no_placeholders": true,
+      "must_include": [
+        "Alex",
+        "this week"
+      ]
+    }
+  },
+  {
+    "id": "verify-email-grounded",
+    "function": "General",
+    "kind": "verify",
+    "message": "summarize my unread emails",
+    "context": "--- GMAIL_INBOX ---\n1. From: Priti Padhy <priti@nexgai.com> | Subject: PRD review feedback | 2h ago\n2. From: AWS Billing <no-reply@aws.com> | Subject: Your July invoice is ready | 5h ago",
+    "answer": "You have 2 unread emails: one from Priti Padhy with feedback on the PRD review, and an AWS billing notice that your July invoice is ready.",
+    "expect": {
+      "grounded": true
+    }
+  },
+  {
+    "id": "verify-email-fabricated",
+    "function": "General",
+    "kind": "verify",
+    "message": "summarize my unread emails",
+    "context": "--- GMAIL_INBOX ---\n1. From: Priti Padhy <priti@nexgai.com> | Subject: PRD review feedback | 2h ago\n2. From: AWS Billing <no-reply@aws.com> | Subject: Your July invoice is ready | 5h ago",
+    "answer": "You have 3 unread emails: Priti's PRD feedback, the AWS July invoice, and a note from John Carter about the Q3 offsite in Lisbon next Friday.",
+    "expect": {
+      "grounded": false
+    }
+  },
+  {
+    "id": "verify-calendar-grounded",
+    "function": "General",
+    "kind": "verify",
+    "message": "what's on my calendar tomorrow?",
+    "context": "--- CALENDAR_UPCOMING ---\n- 09:30 Daily Standup (30 min)\n- 14:00 Design review with Maya (1 hr)",
+    "answer": "Tomorrow you have the Daily Standup at 9:30am and a Design review with Maya at 2pm.",
+    "expect": {
+      "grounded": true
+    }
+  },
+  {
+    "id": "verify-calendar-fabricated",
+    "function": "General",
+    "kind": "verify",
+    "message": "what's on my calendar tomorrow?",
+    "context": "--- CALENDAR_UPCOMING ---\n- 09:30 Daily Standup (30 min)",
+    "answer": "Tomorrow you have the Daily Standup at 9:30am and a 1:1 with Sarah at 4pm.",
+    "expect": {
+      "grounded": false
+    }
+  },
+  {
+    "id": "caveat-appends-on-ungrounded",
+    "function": "General",
+    "kind": "caveat",
+    "answer": "You have a 1:1 with Sarah at 4pm.",
+    "verdict": {
+      "status": "ungrounded",
+      "unsupported": [
+        "1:1 with Sarah at 4pm"
+      ]
+    },
+    "expect": {
+      "caveat": true
+    }
+  },
+  {
+    "id": "caveat-silent-on-grounded",
+    "function": "General",
+    "kind": "caveat",
+    "answer": "You have a Standup at 9:30am.",
+    "verdict": {
+      "status": "grounded",
+      "unsupported": []
+    },
+    "expect": {
+      "caveat": false
+    }
+  },
+  {
+    "id": "gate-L1-send-blocked-readonly",
+    "function": "Guardrails",
+    "kind": "autonomy",
+    "level": 1,
+    "action": "send",
+    "confirmed": false,
+    "expect": {
+      "allowed": false,
+      "needs_confirmation": false
+    }
+  },
+  {
+    "id": "gate-L1-send-blocked-even-confirmed",
+    "function": "Guardrails",
+    "kind": "autonomy",
+    "level": 1,
+    "action": "send",
+    "confirmed": true,
+    "expect": {
+      "allowed": false,
+      "needs_confirmation": false
+    }
+  },
+  {
+    "id": "gate-L1-read-allowed",
+    "function": "Guardrails",
+    "kind": "autonomy",
+    "level": 1,
+    "action": "read",
+    "confirmed": false,
+    "expect": {
+      "allowed": true
+    }
+  },
+  {
+    "id": "gate-L2-send-needs-confirm",
+    "function": "Guardrails",
+    "kind": "autonomy",
+    "level": 2,
+    "action": "send",
+    "confirmed": false,
+    "expect": {
+      "allowed": false,
+      "needs_confirmation": true
+    }
+  },
+  {
+    "id": "gate-L2-send-confirmed-allowed",
+    "function": "Guardrails",
+    "kind": "autonomy",
+    "level": 2,
+    "action": "send",
+    "confirmed": true,
+    "expect": {
+      "allowed": true
+    }
+  },
+  {
+    "id": "gate-L3-schedule-auto",
+    "function": "Guardrails",
+    "kind": "autonomy",
+    "level": 3,
+    "action": "schedule",
+    "confirmed": false,
+    "expect": {
+      "allowed": true
+    }
+  },
+  {
+    "id": "gate-L4-delete-needs-confirm",
+    "function": "Guardrails",
+    "kind": "autonomy",
+    "level": 4,
+    "action": "delete",
+    "confirmed": false,
+    "expect": {
+      "allowed": false,
+      "needs_confirmation": true
+    }
+  },
+  {
+    "id": "gate-L4-delete-confirmed-allowed",
+    "function": "Guardrails",
+    "kind": "autonomy",
+    "level": 4,
+    "action": "delete",
+    "confirmed": true,
+    "expect": {
+      "allowed": true
+    }
+  },
+  {
+    "id": "gate-L5-send-auto",
+    "function": "Guardrails",
+    "kind": "autonomy",
+    "level": 5,
+    "action": "send",
+    "confirmed": false,
+    "expect": {
+      "allowed": true
+    }
+  },
+  {
+    "id": "research-plan-1",
+    "function": "research",
+    "kind": "research_plan",
+    "raw": "Here is the plan:\n```json\n{\n  \"sub_questions\": [\"What 7B models exist?\", \"How do they compare on benchmarks?\", \"What licenses apply?\"],\n  \"queries\": [\"top open weight 7B models 2026\", \"7B model benchmark comparison\", \"open weight LLM license comparison\"],\n}\n```",
+    "expect": {
+      "sub_questions": 3,
+      "queries": 3
+    }
+  },
+  {
+    "id": "research-cite-pos",
+    "function": "research",
+    "kind": "research_cite",
+    "report": "## Findings\nModel X scored highest [Qwen blog](https://qwen.ai/blog). It is Apache-2.0 [HF card](https://huggingface.co/qwen).\n\n## Sources\n- [Qwen blog](https://qwen.ai/blog)",
+    "expect": {
+      "http_citation": true
+    }
+  },
+  {
+    "id": "research-cite-neg",
+    "function": "research",
+    "kind": "research_cite",
+    "report": "The model scored highest according to recent benchmarks. No links provided here.",
+    "expect": {
+      "http_citation": false
+    }
+  },
+  {
+    "id": "research-cite-scrub",
+    "function": "research",
+    "kind": "research_cite",
+    "report": "## Summary\nHi [Your Name], the top model is X [src](https://example.com/a). Please review by [Date].",
+    "expect": {
+      "http_citation": true
+    }
+  },
+  {
+    "id": "research-live-1",
+    "function": "research",
+    "kind": "research",
+    "max_rounds": 1,
+    "query": "compare the top open-weight 7B language models in 2026",
+    "expect": {
+      "min_sources": 1,
+      "http_citation": true
+    }
+  }
+]

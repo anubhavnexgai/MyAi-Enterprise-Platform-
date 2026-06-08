@@ -1,0 +1,43 @@
+<div class="page-header">
+  <div>
+    <h1 class="page-title">Documents</h1>
+    <div class="page-subtitle">You write — AI assists. Markdown, HTML, CSV with versioning.</div>
+  </div>
+  <button class="btn btn-primary" id="docNew"><span class="material-symbols-rounded">add</span> New document</button>
+</div>
+
+<div class="ws-split">
+  <div class="ws-list" id="docList"><div class="ws-empty">Loading…</div></div>
+  <div class="ws-detail" id="docDetail"><div class="ws-empty">Select a document or create one.</div></div>
+</div>
+
+<script>
+(function(){
+  const listEl=document.getElementById('docList'); if(!listEl||listEl.dataset.bound==='1') return; listEl.dataset.bound='1';
+  const detail=document.getElementById('docDetail'); const esc=window.escapeHtml, toast=window.toast||console.log;
+  async function load(){
+    const d=await window.oui.get('/documents/library?limit=100'); const docs=(d&&d.documents)||[];
+    if(!docs.length){ listEl.innerHTML='<div class="ws-empty">No documents</div>'; return; }
+    listEl.innerHTML='';
+    for(const doc of docs){
+      const it=document.createElement('div'); it.className='ws-item';
+      it.innerHTML='<div class="ws-item-title">'+esc(doc.title||'Untitled')+'</div><div class="ws-item-sub">'+esc(doc.language||'markdown')+' · '+esc((doc.updated_at||'').slice(0,10))+'</div>';
+      it.onclick=()=>open(doc.id); listEl.appendChild(it);
+    }
+  }
+  async function open(id){
+    const doc=await window.oui.get('/document/'+id); if(!doc){ toast('Load failed','error'); return; }
+    detail.innerHTML='<div class="ws-toolbar"><input class="ws-input ws-grow" id="dTitle" value="'+esc(doc.title||'')+'">'+
+      '<button class="btn btn-sm" id="dSave"><span class="material-symbols-rounded">save</span>Save</button>'+
+      '<button class="btn btn-sm btn-danger" id="dDel">Delete</button></div>'+
+      '<textarea id="dBody" style="flex:1;width:100%;border:1px solid var(--border);border-radius:var(--r);padding:12px;font-family:ui-monospace,monospace;font-size:13px;resize:none">'+esc(doc.current_content||'')+'</textarea>';
+    document.getElementById('dSave').onclick=async()=>{ const r=await window.oui.postJson('/document/'+id,{content:document.getElementById('dBody').value},'PUT'); if(r.ok){ const t=document.getElementById('dTitle').value; if(t!==doc.title) await window.oui.postJson('/document/'+id,{title:t},'PATCH'); toast('Saved','success'); load(); } else toast('Save failed','error'); };
+    document.getElementById('dDel').onclick=async()=>{ await window.oui.del('/document/'+id); detail.innerHTML='<div class="ws-empty">Deleted.</div>'; load(); };
+  }
+  document.getElementById('docNew').onclick=async()=>{
+    const r=await window.oui.postJson('/document',{title:'Untitled',language:'markdown',content:'# New document\n\n'});
+    if(r.ok&&r.json){ toast('Created','success'); load(); open(r.json.id); } else toast('Create failed','error');
+  };
+  load();
+})();
+</script>

@@ -86,16 +86,48 @@ async def dashboard_summary(
     """
     user_id, tenant_id = user.sub, user.tenant_id
 
-    # Fan-out the slow calls in parallel
-    gmail_counts_task = asyncio.create_task(gmail_counts(user_id, tenant_id))
-    gmail_msgs_task = asyncio.create_task(
-        gmail_messages_structured(
+    # Cache-first reads — the background harvester (or, in DEMO_MODE, the demo
+    # seed) keeps Gmail/Calendar warm in local tables. The dashboard must read
+    # the SAME cache the Inbox/Copilot do, otherwise it shows em-dashes whenever
+    # the live Google connectors aren't connected (e.g. demo / first run).
+    from app.services.demo_seed import demo_mode_enabled, is_demo_user
+    from app.services.harvester_worker import (
+        cache_is_fresh,
+        cached_events,
+        cached_messages,
+        force_refresh_for_user,
+    )
+
+    # Demo accounts read their seeded cache; real accounts read live/cached data.
+    demo = demo_mode_enabled() or is_demo_user(user_id)
+
+    async def _load_unread_gmail() -> list[dict]:
+        fresh = await cache_is_fresh(user_id, tenant_id, "gmail", "messages")
+        if fresh or demo:
+            msgs = await cached_messages(user_id, tenant_id, "gmail")
+            if demo and not msgs:
+                await force_refresh_for_user(user_id, tenant_id)
+                msgs = await cached_messages(user_id, tenant_id, "gmail")
+            return [m for m in msgs if m.get("unread")]
+        return await gmail_messages_structured(
             user_id, "is:unread in:inbox", limit=10, tenant_id=tenant_id
         )
-    )
-    calendar_task = asyncio.create_task(
-        calendar_events_structured(user_id, days_ahead=2, tenant_id=tenant_id)
-    )
+
+    async def _load_events() -> list[dict]:
+        fresh = await cache_is_fresh(user_id, tenant_id, "google_calendar", "events")
+        if fresh or demo:
+            evs = await cached_events(user_id, tenant_id, "google_calendar")
+            if demo and not evs:
+                await force_refresh_for_user(user_id, tenant_id)
+                evs = await cached_events(user_id, tenant_id, "google_calendar")
+            return evs
+        return await calendar_events_structured(
+            user_id, days_ahead=2, tenant_id=tenant_id
+        )
+
+    # Fan-out the slow calls in parallel
+    gmail_msgs_task = asyncio.create_task(_load_unread_gmail())
+    calendar_task = asyncio.create_task(_load_events())
 
     # Local DB stats (cheap)
     router_db = get_tenant_router()
@@ -127,9 +159,16 @@ async def dashboard_summary(
         )
         actions_today = int(actions_q.scalar() or 0)
 
-    gmail_c = await gmail_counts_task
     gmail_msgs = await gmail_msgs_task
     cal_events = await calendar_task
+
+    # Counts: derive from the same cache when we're serving cached/demo data so
+    # the KPIs agree with the Inbox; only call the live counts API otherwise.
+    gmail_fresh = await cache_is_fresh(user_id, tenant_id, "gmail", "messages")
+    if gmail_fresh or demo:
+        gmail_c = {"unread": len(gmail_msgs), "drafts": 0, "available": True}
+    else:
+        gmail_c = await gmail_counts(user_id, tenant_id)
 
     # Classify every unread email so we can filter promos / system out of
     # both the UNREAD KPI and the Active threads card.
@@ -217,7 +256,7 @@ async def dashboard_summary(
             select(InboxTask)
             .where(InboxTask.tenant_id == tenant_id)
             .where(InboxTask.creator_id == user_id)
-            .where(InboxTask.status.in_(["in_progress", "blocked", "open"]))
+            .where(InboxTask.status.in_(["in_progress", "blocked", "open", "paused"]))
             .order_by(InboxTask.updated_at.desc())
             .limit(5)
         )
@@ -231,10 +270,11 @@ async def dashboard_summary(
             "in_progress": "RUNNING",
             "blocked": "WAITING ON YOU",
             "open": "QUEUED",
+            "paused": "PAUSED",
         }.get(t.status, t.status.upper())
         progress = (
             70 if t.status == "in_progress" else
-            45 if t.status == "blocked" else
+            45 if t.status in ("blocked", "paused") else
             10
         )
         lifecycle = _build_lifecycle(t)
@@ -242,6 +282,8 @@ async def dashboard_summary(
             {
                 "id": f"TASK-{t.id}",
                 "task_id": t.id,
+                "source": t.source or "agent",
+                "session_id": (t.payload or {}).get("session_id"),
                 "name": t.title or f"Task #{t.id}",
                 "level": 3 if t.priority in ("high", "critical") else 2,
                 "competitor": (t.priority or "normal").title(),
@@ -252,12 +294,13 @@ async def dashboard_summary(
                 "progress": progress,
                 "confidence": 90,
                 "incentives": (
-                    ["Resume", "Cancel"] if t.status == "blocked" else
+                    ["Resume", "Cancel"] if t.status in ("blocked", "paused") else
                     ["Pause", "Cancel"] if t.status == "in_progress" else
                     ["Run now", "Cancel"]
                 ),
                 "thinking": _task_assistant_says(t),
                 "recommended_action": (
+                    "Resume when ready" if t.status == "paused" else
                     "Approve and continue" if t.status == "blocked" else
                     "Let it run" if t.status == "in_progress" else
                     "Kick it off"

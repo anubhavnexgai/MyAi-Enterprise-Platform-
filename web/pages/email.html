@@ -1,0 +1,320 @@
+<div class="page-header">
+  <div>
+    <h1 class="page-title">Email</h1>
+    <div class="page-subtitle">Your connected Gmail / Outlook — folders, search, reply &amp; AI triage</div>
+  </div>
+  <div style="display:flex;gap:8px;align-items:center">
+    <button class="btn" id="emRefresh"><span class="material-symbols-rounded">refresh</span> Refresh</button>
+    <button class="btn btn-primary" id="emCompose"><span class="material-symbols-rounded">edit</span> Compose</button>
+  </div>
+</div>
+
+<div class="ws-toolbar" style="flex-wrap:wrap;gap:8px">
+  <select class="ws-input" id="emFolder" style="max-width:160px" title="Folder">
+    <option value="__inbox__">📥 Inbox</option>
+    <option value="is:unread">✉️ Unread</option>
+    <option value="is:starred">⭐ Starred</option>
+    <option value="is:important">❗ Important</option>
+    <option value="in:sent">📤 Sent</option>
+    <option value="in:anywhere">🗂️ All mail</option>
+    <option value="__scheduled__">⏰ Scheduled</option>
+  </select>
+  <div style="flex:1"></div>
+  <select class="ws-input" id="emAccountFilter" style="max-width:130px">
+    <option value="all">All accounts</option>
+    <option value="gmail">Gmail</option>
+    <option value="outlook">Outlook</option>
+  </select>
+  <select class="ws-input" id="emSort" style="max-width:130px">
+    <option value="newest">Newest</option>
+    <option value="oldest">Oldest</option>
+    <option value="sender">Sender A–Z</option>
+  </select>
+</div>
+
+<div class="ws-toolbar" style="gap:8px">
+  <input class="ws-input ws-grow" id="emSearch" placeholder="Search all mail (press Enter)…">
+  <button class="btn btn-sm" id="emSearchBtn"><span class="material-symbols-rounded">search</span></button>
+</div>
+
+<div class="em-bulk" id="emBulk" style="display:none">
+  <span id="emBulkCount" style="font-weight:600"></span>
+  <div style="flex:1"></div>
+  <button class="btn btn-sm" data-bulk="read"><span class="material-symbols-rounded">drafts</span>Read</button>
+  <button class="btn btn-sm" data-bulk="unread"><span class="material-symbols-rounded">mark_email_unread</span>Unread</button>
+  <button class="btn btn-sm" data-bulk="star"><span class="material-symbols-rounded">star</span>Star</button>
+  <button class="btn btn-sm" data-bulk="archive"><span class="material-symbols-rounded">archive</span>Archive</button>
+  <button class="btn btn-sm btn-danger" data-bulk="delete"><span class="material-symbols-rounded">delete</span>Delete</button>
+</div>
+
+<div class="ws-split">
+  <div class="ws-list" id="emList"><div class="ws-empty">Loading your inbox…</div></div>
+  <div class="ws-detail" id="emRead"><div class="ws-empty">Select a message.</div></div>
+</div>
+
+<style>
+.em-folders{display:flex;gap:4px;flex-wrap:wrap}
+.em-fchip{display:inline-flex;align-items:center;gap:5px;border:1px solid var(--border);background:var(--bg-elev);color:var(--text-muted);border-radius:var(--r-pill);padding:5px 12px;font-size:12.5px;font-weight:600;cursor:pointer}
+.em-fchip .material-symbols-rounded{font-size:16px}
+.em-fchip.active{background:var(--accent);color:#fff;border-color:var(--accent)}
+.em-bulk{display:flex;align-items:center;gap:6px;padding:8px 12px;margin:0 0 6px;background:var(--accent-soft);border:1px solid var(--border);border-radius:var(--r-sm)}
+.em-dot{display:inline-block;width:8px;height:8px;border-radius:50%;flex:none}
+.em-row{display:flex;align-items:flex-start;gap:9px;padding:10px 12px;border-bottom:1px solid var(--border);cursor:pointer}
+.em-row:hover{background:var(--bg-elev)}
+.em-row.unread .em-subj{font-weight:700;color:var(--text-strong)}
+.em-row.sel{background:var(--accent-soft)}
+.em-star{cursor:pointer;color:var(--text-muted);font-size:18px;flex:none}
+.em-star.on{color:#f5b301}
+.em-cb{margin-top:3px;flex:none}
+.em-meta{flex:1;min-width:0}
+.em-line1{display:flex;align-items:center;gap:6px}
+.em-from{font-weight:600;color:var(--text-strong);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:13px;flex:1}
+.em-time{font-size:11px;color:var(--text-muted);flex:none}
+.em-subj{font-size:13px;color:var(--text-strong);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.em-snip{font-size:12px;color:var(--text-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.em-acts{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+.em-acts .btn-sm .material-symbols-rounded{font-size:17px}
+.em-att{margin-top:10px}
+.em-att-label{font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.06em;margin-bottom:5px}
+.em-att-chip{display:flex;align-items:center;gap:8px;border:1px solid var(--border);border-radius:9px;padding:7px 10px;margin-bottom:6px;background:var(--bg-elev)}
+.em-att-name{flex:1;min-width:0;font-size:13px;color:var(--text-strong);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.em-att-size{font-size:11.5px;color:var(--text-muted);flex:none}
+.em-att-chip .icon-btn .material-symbols-rounded{font-size:18px}
+</style>
+
+<script>
+(function(){
+  const listEl=document.getElementById('emList'); if(!listEl||listEl.dataset.bound==='1') return; listEl.dataset.bound='1';
+  const read=document.getElementById('emRead');
+  const esc=window.escapeHtml, toast=window.toast||console.log, sj=window.safeFetchJson;
+  let msgs=[], folderQ='', folderSrc='inbox', account='all', sort='newest', search='', selected=new Set();
+
+  const POST=(url)=>fetch(url,{method:'POST',credentials:'include'}).then(r=>r.ok).catch(()=>false);
+
+  // ---- normalize records from /api/inbox (rich) or /api/inbox/search (flags) ----
+  function norm(m){
+    const kind=m.external_kind||m.account||'gmail';
+    return {
+      extId:m.external_id||String(m.id||'').replace(/^.*:/,''),
+      kind, account:m.account||kind,
+      title:m.title||'(no subject)',
+      from_name:m.from_name||'',
+      snippet:m.snippet||m.summary||'',
+      date:m.created_at||m.date||'',
+      priority:m.priority||'medium',
+      suggestion:m.suggestion||'', suggestion_action:m.suggestion_action||'',
+      is_read:m.is_read!==undefined?m.is_read:true,
+      is_starred:!!m.is_starred,
+      thread_id:m.thread_id||'',
+    };
+  }
+
+  async function load(force){
+    listEl.innerHTML='<div class="ws-empty">Loading…</div>'; selected.clear(); renderBulk();
+    if(force){ try{ await fetch('/api/inbox/refresh',{method:'POST',credentials:'include'}); }catch(e){} }
+    if(folderSrc==='scheduled'){ const d=await sj('/api/inbox/scheduled'); renderScheduled((d&&d.scheduled)||[]); return; }
+    let raw=[];
+    if(search){
+      const d=await sj('/api/inbox/search?q='+encodeURIComponent(search)+'&limit=50'); raw=(d&&d.messages)||[];
+    } else if(folderSrc==='inbox'){
+      const d=await sj('/api/inbox'); raw=((d&&d.tasks)||[]).filter(t=>t.source==='email');
+    } else {
+      const d=await sj('/api/inbox/search?q='+encodeURIComponent(folderQ)+'&limit=50'); raw=(d&&d.messages)||[];
+    }
+    msgs=raw.map(norm);
+    if(!msgs.length){
+      const conn=await sj('/api/connectors'); const has=conn&&(conn.connectors||[]).some(c=>['google_gmail','microsoft_graph'].includes(c.provider)&&c.connected);
+      listEl.innerHTML='<div class="ws-empty">'+(has?'No messages here.':'No mailbox connected.<br><br><a class="btn btn-primary" href="#/connectors">Connect Gmail / Outlook</a>')+'</div>'; return;
+    }
+    render();
+  }
+
+  function render(){
+    let arr=msgs.slice();
+    if(account!=='all') arr=arr.filter(m=>m.account===account);
+    if(sort==='oldest') arr.reverse();
+    else if(sort==='sender') arr.sort((a,b)=>(a.from_name||'').localeCompare(b.from_name||''));
+    if(!arr.length){ listEl.innerHTML='<div class="ws-empty">No messages match.</div>'; return; }
+    listEl.innerHTML='';
+    for(const m of arr){
+      const col=m.priority==='high'?'var(--red)':(m.priority==='medium'?'var(--orange)':'var(--green)');
+      const row=document.createElement('div'); row.className='em-row'+(m.is_read?'':' unread')+(selected.has(m.extId)?' sel':'');
+      const star=m.kind==='gmail'?('<span class="em-star material-symbols-rounded'+(m.is_starred?' on':'')+'" data-star title="Star">'+(m.is_starred?'star':'star_border')+'</span>'):'';
+      const act=(m.suggestion_action&&m.suggestion_action!=='none')?'<span class="ws-tag" style="background:var(--accent-soft);color:var(--accent);font-size:10px">'+esc(m.suggestion_action)+'</span>':'';
+      row.innerHTML='<input type="checkbox" class="em-cb" '+(selected.has(m.extId)?'checked':'')+'>'+star+
+        '<span class="em-dot" style="background:'+col+';margin-top:5px"></span>'+
+        '<div class="em-meta"><div class="em-line1"><span class="em-from">'+esc(m.from_name||'(unknown)')+'</span><span class="em-time">'+esc(fmtTime(m.date))+'</span></div>'+
+        '<div class="em-subj">'+esc(m.title)+'</div><div class="em-snip">'+esc(m.snippet)+' '+act+'</div></div>';
+      row.querySelector('.em-cb').onclick=(e)=>{ e.stopPropagation(); if(e.target.checked) selected.add(m.extId); else selected.delete(m.extId); row.classList.toggle('sel',e.target.checked); renderBulk(); };
+      const se=row.querySelector('[data-star]'); if(se) se.onclick=async(e)=>{ e.stopPropagation(); const on=!m.is_starred; const ok=await POST('/api/inbox/gmail/'+encodeURIComponent(m.extId)+'/'+(on?'star':'unstar')+'?confirm=true'); if(ok){ m.is_starred=on; se.classList.toggle('on',on); se.textContent=on?'star':'star_border'; } };
+      row.onclick=()=>openMsg(m); listEl.appendChild(row);
+    }
+  }
+
+  function fmtTime(d){ if(!d) return ''; const t=new Date(d); if(isNaN(t)) return String(d).slice(0,16); const now=new Date(); const sameDay=t.toDateString()===now.toDateString(); return sameDay?t.toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'}):t.toLocaleDateString([], {month:'short',day:'numeric'}); }
+  function fmtSize(n){ n=Number(n)||0; if(n>=1048576) return (n/1048576).toFixed(1)+' MB'; if(n>=1024) return (n/1024).toFixed(0)+' KB'; return n+' B'; }
+  function fmtWhen(d){ if(!d) return ''; const t=new Date(d); return isNaN(t)?String(d):t.toLocaleString([], {month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'}); }
+
+  function renderScheduled(items){
+    read.innerHTML='<div class="ws-empty">Pending scheduled emails. They send automatically at their time.</div>';
+    if(!items.length){ listEl.innerHTML='<div class="ws-empty">No scheduled emails.</div>'; return; }
+    listEl.innerHTML=items.map(s=>'<div class="em-row"><div class="em-meta"><div class="em-line1"><span class="em-from">To: '+esc(s.to||'')+'</span><span class="em-time">'+esc(fmtWhen(s.send_at))+'</span></div><div class="em-subj">'+esc(s.subject||'(no subject)')+'</div><div class="em-snip">⏰ scheduled · '+esc(s.account||'')+'</div></div><button class="btn btn-sm btn-danger" data-cancel="'+s.id+'">Cancel</button></div>').join('');
+    listEl.querySelectorAll('[data-cancel]').forEach(b=>b.onclick=async()=>{ await sj('/api/inbox/scheduled/'+b.dataset.cancel,{method:'DELETE'}); toast('Cancelled','info'); load(); });
+  }
+
+  function renderAttachments(m, atts){
+    const el=document.getElementById('emAtt'); if(!el) return;
+    if(!atts.length){ el.innerHTML=''; return; }
+    el.innerHTML='<div class="em-att-label">'+atts.length+' attachment'+(atts.length>1?'s':'')+'</div>'+atts.map(a=>{
+      const url='/api/inbox/gmail/'+encodeURIComponent(m.extId)+'/attachment/'+encodeURIComponent(a.attachment_id)+'?filename='+encodeURIComponent(a.filename||'file');
+      const isText=/^text\/|json|csv|xml|javascript|markdown/.test(a.mime||'')||/\.(txt|md|csv|json|log|js|py|html|css|yaml|yml)$/i.test(a.filename||'');
+      return '<div class="em-att-chip"><span class="material-symbols-rounded" style="color:var(--accent)">description</span>'+
+        '<span class="em-att-name" title="'+esc(a.filename||'')+'">'+esc(a.filename||'file')+'</span>'+
+        '<span class="em-att-size">'+fmtSize(a.size)+'</span>'+
+        '<a class="icon-btn" href="'+url+'" download title="Download"><span class="material-symbols-rounded">download</span></a>'+
+        (isText?'<button class="icon-btn" data-doc="'+encodeURIComponent(a.attachment_id)+'~~'+encodeURIComponent(a.filename||'file')+'" title="Open in Documents"><span class="material-symbols-rounded">edit_note</span></button>':'')+
+      '</div>';
+    }).join('');
+    el.querySelectorAll('[data-doc]').forEach(b=>b.onclick=async()=>{
+      const [aid,fn]=b.dataset.doc.split('~~'); const name=decodeURIComponent(fn);
+      try{
+        const r=await fetch('/api/inbox/gmail/'+encodeURIComponent(m.extId)+'/attachment/'+aid+'?filename='+fn,{credentials:'include'});
+        const txt=await r.text();
+        const cr=await window.oui.postJson('/document',{title:name,language:'plaintext',content:txt});
+        if(cr.ok&&cr.json&&window.openDocsDrawer){ await window.openDocsDrawer(cr.json.id); toast('Opened in Documents','success'); }
+        else toast('Could not open as document','error');
+      }catch(_){ toast('Could not open attachment','error'); }
+    });
+  }
+
+  function renderBulk(){
+    const b=document.getElementById('emBulk');
+    if(!selected.size){ b.style.display='none'; return; }
+    b.style.display='flex'; document.getElementById('emBulkCount').textContent=selected.size+' selected';
+  }
+  document.getElementById('emBulk').querySelectorAll('[data-bulk]').forEach(btn=>btn.onclick=async()=>{
+    const a=btn.dataset.bulk; const ids=[...selected];
+    for(const m of msgs.filter(x=>ids.includes(x.extId))){
+      const base='/api/inbox/'+m.account+'/'+encodeURIComponent(m.extId);
+      if(a==='read') await POST(base+'/mark-read?confirm=true');
+      else if(a==='unread'&&m.kind==='gmail') await POST('/api/inbox/gmail/'+encodeURIComponent(m.extId)+'/mark-unread?confirm=true');
+      else if(a==='star'&&m.kind==='gmail') await POST('/api/inbox/gmail/'+encodeURIComponent(m.extId)+'/star?confirm=true');
+      else if(a==='archive') await POST(base+'/archive?confirm=true');
+      else if(a==='delete') await POST(base+'/delete?confirm=true');
+    }
+    toast(a.charAt(0).toUpperCase()+a.slice(1)+' '+ids.length+' message(s)','success'); selected.clear(); load();
+  });
+
+  async function openMsg(m){
+    read.innerHTML='<div class="ws-empty">Loading…</div>';
+    const detail=await sj('/api/inbox/'+m.kind+'/'+encodeURIComponent(m.extId));
+    const body=(detail&&detail.body)||m.snippet||''; const from=(detail&&detail.from)||m.from_name||'';
+    const isG=m.kind==='gmail';
+    read.innerHTML='<div class="em-acts" style="margin-bottom:8px">'+
+      '<button class="btn btn-sm btn-primary" id="emReply"><span class="material-symbols-rounded">reply</span>Reply</button>'+
+      '<button class="btn btn-sm" id="emReplyAll"><span class="material-symbols-rounded">reply_all</span>Reply all</button>'+
+      '<button class="btn btn-sm" id="emFwd"><span class="material-symbols-rounded">forward</span>Forward</button>'+
+      (isG?'<button class="btn btn-sm" id="emUnread" title="Mark unread"><span class="material-symbols-rounded">mark_email_unread</span></button>':'')+
+      '<button class="btn btn-sm" id="emArch" title="Archive"><span class="material-symbols-rounded">archive</span></button>'+
+      '<button class="btn btn-sm btn-danger" id="emDel" title="Delete"><span class="material-symbols-rounded">delete</span></button>'+
+      (m.thread_id&&isG?'<button class="btn btn-sm" id="emThread" title="View conversation"><span class="material-symbols-rounded">forum</span></button>':'')+
+      '<div style="flex:1"></div>'+
+      '<button class="btn btn-sm" id="emSum"><span class="material-symbols-rounded">summarize</span>Summarize</button>'+
+      '<button class="btn btn-sm" id="emAiReply"><span class="material-symbols-rounded">auto_awesome</span>AI reply</button></div>'+
+      '<h3 style="margin:2px 0 4px">'+esc(m.title)+'</h3>'+
+      '<div class="ws-item-sub">From '+esc(from)+(detail&&detail.date?(' · '+esc(String(detail.date).slice(0,22))):'')+'</div>'+
+      (m.suggestion?'<div class="card card-pad" style="margin-top:10px;border-left:3px solid var(--accent)"><b style="font-size:12px;color:var(--accent)">AI suggestion'+(m.suggestion_action&&m.suggestion_action!=='none'?(' · '+esc(m.suggestion_action)):'')+'</b><div style="font-size:13px;margin-top:4px">'+esc(m.suggestion)+'</div></div>':'')+
+      '<div id="emAi"></div>'+
+      '<div id="emAtt" class="em-att"></div>'+
+      '<div class="card card-pad" id="emBody" style="margin-top:10px;white-space:pre-wrap;font-size:13px;flex:1;overflow:auto">'+esc(body||'(no preview)')+'</div>';
+    renderAttachments(m, (detail&&detail.attachments)||[]);
+    // auto mark-read
+    try{ await POST('/api/inbox/'+m.account+'/'+encodeURIComponent(m.extId)+'/mark-read?confirm=true'); m.is_read=true; }catch(e){}
+    const addr=(from.match(/<([^>]+)>/)||[])[1]||from;
+    document.getElementById('emArch').onclick=async()=>{ await POST('/api/inbox/'+m.account+'/'+encodeURIComponent(m.extId)+'/archive?confirm=true'); toast('Archived','success'); read.innerHTML='<div class="ws-empty">Archived.</div>'; load(); };
+    document.getElementById('emDel').onclick=async()=>{ await POST('/api/inbox/'+m.account+'/'+encodeURIComponent(m.extId)+'/delete?confirm=true'); toast('Deleted','success'); read.innerHTML='<div class="ws-empty">Deleted.</div>'; load(); };
+    const ub=document.getElementById('emUnread'); if(ub) ub.onclick=async()=>{ await POST('/api/inbox/gmail/'+encodeURIComponent(m.extId)+'/mark-unread?confirm=true'); toast('Marked unread','success'); load(); };
+    document.getElementById('emReply').onclick=()=>replyModal(m,addr,'',false);
+    document.getElementById('emReplyAll').onclick=()=>replyModal(m,addr,(detail&&detail.cc)||'',true);
+    document.getElementById('emFwd').onclick=()=>fwdModal(m,detail,body);
+    const tb=document.getElementById('emThread'); if(tb) tb.onclick=async()=>{ const t=await sj('/api/inbox/gmail/thread/'+encodeURIComponent(m.thread_id)); const msgsT=(t&&t.messages)||[]; document.getElementById('emBody').innerHTML=msgsT.map(x=>'<div style="border-top:1px solid var(--border);padding:8px 0"><b>'+esc(x.from_name||x.from||'')+'</b> <span style="color:var(--text-muted);font-size:11px">'+esc(String(x.date||'').slice(0,22))+'</span><div style="white-space:pre-wrap;margin-top:4px">'+esc(x.body||x.snippet||'')+'</div></div>').join('')||'(no thread)'; };
+    document.getElementById('emSum').onclick=()=>aiAction(m,from,body,'summarize');
+    document.getElementById('emAiReply').onclick=()=>aiAction(m,from,body,'reply');
+  }
+
+  async function aiAction(m,from,body,kind){
+    const ai=document.getElementById('emAi'); ai.innerHTML='<div class="card card-pad" style="margin-top:10px">'+(kind==='reply'?'Drafting reply…':'Summarizing…')+'</div>';
+    const r=await sj('/api/copilot/suggest',{method:'POST',body:{subject:m.title,sender:from,body:body,message_id:m.extId,account:m.account}});
+    const txt=(r&&r.suggestion)||'(none)';
+    if(kind==='summarize'){ ai.innerHTML='<div class="card card-pad" style="margin-top:10px"><b>Summary</b><div style="font-size:13px;margin-top:4px;white-space:pre-wrap">'+esc(txt)+'</div></div>'; }
+    else { const addr=(from.match(/<([^>]+)>/)||[])[1]||from; replyModal(m,addr,'',false,txt); ai.innerHTML=''; }
+  }
+
+  function composeBody(fields, onSend){
+    window.openModal('<div class="modal-head"><h3>'+fields.title+'</h3><button class="icon-btn" data-close><span class="material-symbols-rounded">close</span></button></div>'+
+      '<div class="modal-body">'+
+      (fields.account?'<label class="ws-field">Account<select id="cAcct" class="ws-input"><option value="gmail">Gmail</option><option value="outlook">Outlook</option></select></label>':'')+
+      '<label class="ws-field">To<input id="cTo" value="'+esc(fields.to||'')+'"></label>'+
+      '<label class="ws-field">Cc<input id="cCc" value="'+esc(fields.cc||'')+'"></label>'+
+      '<label class="ws-field">Bcc<input id="cBcc"></label>'+
+      '<label class="ws-field">Subject<input id="cSub" value="'+esc(fields.subject||'')+'"></label>'+
+      '<label class="ws-field">Body<textarea id="cBody" style="min-height:160px">'+esc(fields.body||'')+'</textarea></label>'+
+      (fields.schedulable?'<label class="ws-field">Send later (optional)<input type="datetime-local" id="cWhen" class="ws-input"></label>':'')+
+      '</div><div class="modal-foot"><button class="btn" data-close>Cancel</button><button class="btn btn-primary" id="cSend"><span class="material-symbols-rounded">send</span>Send</button></div>');
+    document.getElementById('cSend').onclick=()=>{
+      const when=document.getElementById('cWhen');
+      onSend({
+        account:fields.account?document.getElementById('cAcct').value:fields.acct,
+        to:document.getElementById('cTo').value, cc:document.getElementById('cCc').value,
+        bcc:document.getElementById('cBcc').value, subject:document.getElementById('cSub').value,
+        body:document.getElementById('cBody').value,
+        sendAt:(when&&when.value)?when.value:'',
+      });
+    };
+  }
+
+  function replyModal(m,to,cc,all,draft){
+    const subject=/^re:/i.test(m.title||'')?m.title:'Re: '+(m.title||'');
+    composeBody({title:all?'Reply all':'Reply', acct:m.account, to:to, cc:all?cc:'', subject:subject, body:draft||''}, async(f)=>{
+      let ok=false;
+      if(m.kind==='gmail'){ const r=await sj('/api/inbox/gmail/'+encodeURIComponent(m.extId)+'/reply?confirm=true',{method:'POST',body:{text:f.body,reply_all:all}}); ok=r&&r.status==='ok'; }
+      else { const r=await sj('/api/inbox/'+m.account+'/send',{method:'POST',body:{to:f.to,subject:f.subject,body:f.body,confirm:true}}); ok=r&&r.status==='ok'; }
+      toast(ok?'Reply sent':'Send failed',ok?'success':'error'); if(ok) window.closeModal();
+    });
+  }
+
+  function fwdModal(m,detail,body){
+    composeBody({title:'Forward', acct:m.account, to:'', subject:/^fwd:/i.test(m.title||'')?m.title:'Fwd: '+(m.title||''), body:''}, async(f)=>{
+      let ok=false;
+      if(m.kind==='gmail'){ const r=await sj('/api/inbox/gmail/'+encodeURIComponent(m.extId)+'/forward?confirm=true',{method:'POST',body:{to:f.to,text:f.body}}); ok=r&&r.status==='ok'; }
+      else { const q=f.body+'\n\n---------- Forwarded ----------\n'+(body||''); const r=await sj('/api/inbox/'+m.account+'/send',{method:'POST',body:{to:f.to,subject:f.subject,body:q,confirm:true}}); ok=r&&r.status==='ok'; }
+      toast(ok?'Forwarded':'Send failed',ok?'success':'error'); if(ok) window.closeModal();
+    });
+  }
+
+  // ---- toolbar wiring ----
+  document.getElementById('emFolder').onchange=(e)=>{
+    const v=e.target.value;
+    if(v==='__inbox__'){ folderSrc='inbox'; folderQ=''; }
+    else if(v==='__scheduled__'){ folderSrc='scheduled'; folderQ=''; }
+    else { folderSrc='search'; folderQ=v; }
+    search=''; document.getElementById('emSearch').value=''; load();
+  };
+  document.getElementById('emAccountFilter').onchange=e=>{ account=e.target.value; render(); };
+  document.getElementById('emSort').onchange=e=>{ sort=e.target.value; render(); };
+  const doSearch=()=>{ search=document.getElementById('emSearch').value.trim(); load(); };
+  document.getElementById('emSearchBtn').onclick=doSearch;
+  document.getElementById('emSearch').onkeydown=e=>{ if(e.key==='Enter') doSearch(); };
+  document.getElementById('emRefresh').onclick=()=>load(true);
+  document.getElementById('emCompose').onclick=()=>composeBody({title:'Compose',account:true,schedulable:true}, async(f)=>{
+    if(f.sendAt){
+      let iso; try{ iso=new Date(f.sendAt).toISOString(); }catch(_){ toast('Invalid date','error'); return; }
+      const r=await sj('/api/inbox/'+f.account+'/schedule?confirm=true',{method:'POST',body:{to:f.to,cc:f.cc,subject:f.subject,body:f.body,send_at:iso}});
+      const ok=r&&r.status==='ok'; toast(ok?'Scheduled ✓':'Schedule failed',ok?'success':'error'); if(ok) window.closeModal(); return;
+    }
+    const r=await sj('/api/inbox/'+f.account+'/send',{method:'POST',body:{to:f.to,subject:f.subject,body:f.body,confirm:true}}); const ok=r&&r.status==='ok'; toast(ok?'Sent':'Send failed',ok?'success':'error'); if(ok) window.closeModal();
+  });
+
+  load(false);
+})();
+</script>

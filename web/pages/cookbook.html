@@ -1,0 +1,56 @@
+<div class="page-header">
+  <div>
+    <h1 class="page-title">Cookbook</h1>
+    <div class="page-subtitle">Scan your hardware, find models that fit, download &amp; serve locally</div>
+  </div>
+  <button class="btn" id="cbScan"><span class="material-symbols-rounded">refresh</span> Re-scan</button>
+</div>
+
+<div class="card card-pad" id="cbHw"><div class="ws-empty">Scanning hardware…</div></div>
+
+<div class="ws-toolbar" style="margin-top:16px">
+  <h3 style="margin:0" class="ws-grow">Recommended models (best fit first)</h3>
+  <input class="ws-input" id="cbSearch" placeholder="Filter…">
+</div>
+<div id="cbModels" class="ws-grid"></div>
+<div id="cbTasks" style="margin-top:16px"></div>
+
+<script>
+(function(){
+  const hwEl=document.getElementById('cbHw'); if(!hwEl||hwEl.dataset.bound==='1') return; hwEl.dataset.bound='1';
+  const esc=window.escapeHtml, toast=window.toast||console.log;
+  async function scan(fresh){
+    hwEl.innerHTML='<div class="ws-empty">Scanning hardware…</div>';
+    const s=await window.oui.get('/hwfit/system'+(fresh?'?fresh=true':''));
+    if(!s){ hwEl.innerHTML='<div class="ws-empty">Hardware scan unavailable on this host.</div>'; return; }
+    const card=(l,v)=>'<div class="card card-pad ws-grow" style="min-width:130px"><div class="ws-item-sub">'+esc(l)+'</div><div style="font-weight:700;color:var(--text-strong);margin-top:2px">'+esc(String(v))+'</div></div>';
+    hwEl.innerHTML='<div class="ws-row">'+card('Backend',(s.backend||'cpu').toUpperCase())+card('GPU',(s.gpu_name||'—')+(s.gpu_count>1?(' ×'+s.gpu_count):''))+card('VRAM',(s.gpu_vram_gb?s.gpu_vram_gb.toFixed(1)+' GB':'—'))+card('RAM',(s.total_ram_gb?s.total_ram_gb.toFixed(0)+' GB':'—'))+card('CPU',(s.cpu_name||'—'))+'</div>';
+    loadModels();
+  }
+  async function loadModels(){
+    const el=document.getElementById('cbModels'); el.innerHTML='<div class="ws-empty">Ranking models…</div>';
+    const d=await window.oui.get('/hwfit/models?limit=24&sort=fit'); const models=(d&&d.models)||[];
+    if(!models.length){ el.innerHTML='<div class="ws-empty">No catalog available.</div>'; return; }
+    const q=(document.getElementById('cbSearch').value||'').toLowerCase(); el.innerHTML='';
+    for(const m of models){
+      if(q && !(m.name||'').toLowerCase().includes(q)) continue;
+      const c=document.createElement('div'); c.className='card card-pad';
+      c.innerHTML='<div style="font-weight:700;color:var(--text-strong);font-size:13px;word-break:break-all">'+esc(m.name||'')+'</div>'+
+        '<div class="ws-item-sub" style="margin-top:4px">'+(m.vram_needed_gb!=null?('~'+m.vram_needed_gb.toFixed(1)+' GB VRAM'):'')+(m.context_length?(' · ctx '+m.context_length):'')+'</div>'+
+        (m.fit_reason?'<div class="ws-tag" style="margin-top:6px">'+esc(m.fit_reason)+'</div>':'')+
+        '<button class="btn btn-sm btn-primary" style="margin-top:8px" data-dl="'+esc(m.name)+'"><span class="material-symbols-rounded">download</span>Download</button>';
+      c.querySelector('[data-dl]').onclick=async(e)=>{ e.target.disabled=true; const r=await window.oui.postJson('/model/download',{repo_id:m.name}); toast(r.ok?'Download started':'Download failed (admin/HF token may be required)',r.ok?'success':'error'); pollTasks(); };
+      el.appendChild(c);
+    }
+  }
+  async function pollTasks(){
+    const d=await window.oui.get('/cookbook/tasks/status'); const tasks=Array.isArray(d)?d:[]; const el=document.getElementById('cbTasks');
+    if(!tasks.length){ el.innerHTML=''; return; }
+    el.innerHTML='<h3>Active tasks</h3>'+tasks.map(t=>'<div class="card card-pad" style="margin-bottom:6px"><b>'+esc(t.type||'')+'</b> '+esc(t.model||'')+' — '+esc(t.status||'')+(t.pct!=null?(' '+t.pct+'%'):'')+' '+esc(t.phase||'')+'</div>').join('');
+    if(tasks.some(t=>t.status==='running')) setTimeout(pollTasks,4000);
+  }
+  document.getElementById('cbScan').onclick=()=>scan(true);
+  let st; document.getElementById('cbSearch').oninput=()=>{ clearTimeout(st); st=setTimeout(loadModels,300); };
+  scan(false); pollTasks();
+})();
+</script>

@@ -64,7 +64,22 @@ async def insights(
             or 0
         )
 
-    gmail_c = await gmail_counts(user.sub, user.tenant_id)
+    # Cache-first Gmail counts — read the same warm cache the Inbox/Dashboard
+    # use so this agrees with them (the live connector is empty when the Google
+    # token is expired or in demo mode).
+    from app.services.demo_seed import demo_mode_enabled, is_demo_user
+    from app.services.harvester_worker import cache_is_fresh, cached_messages
+
+    demo = demo_mode_enabled() or is_demo_user(user.sub)
+    gmail_fresh = await cache_is_fresh(user.sub, user.tenant_id, "gmail", "messages")
+    if gmail_fresh or demo:
+        msgs = await cached_messages(user.sub, user.tenant_id, "gmail")
+        gmail_unread = sum(1 for m in msgs if m.get("unread"))
+        gmail_drafts = 0
+    else:
+        gmail_c = await gmail_counts(user.sub, user.tenant_id)
+        gmail_unread = gmail_c.get("unread") if gmail_c.get("available") else None
+        gmail_drafts = gmail_c.get("drafts") if gmail_c.get("available") else None
 
     # Rough time-saved estimate: 30 sec / agent action
     time_saved_min = round(actions_today * 0.5)
@@ -74,8 +89,8 @@ async def insights(
         "actions_week": actions_week,
         "chat_messages_today": chat_count,
         "time_saved_minutes": time_saved_min,
-        "gmail_unread": gmail_c.get("unread") if gmail_c.get("available") else None,
-        "gmail_drafts": gmail_c.get("drafts") if gmail_c.get("available") else None,
+        "gmail_unread": gmail_unread,
+        "gmail_drafts": gmail_drafts,
         "generated_at": now.isoformat(),
     }
 

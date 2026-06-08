@@ -1,0 +1,37 @@
+<div class="page-header">
+  <div>
+    <h1 class="page-title">Gallery</h1>
+    <div class="page-subtitle">AI-generated &amp; uploaded images</div>
+  </div>
+  <button class="btn" id="glRefresh"><span class="material-symbols-rounded">refresh</span> Refresh</button>
+</div>
+<div id="glGrid" class="gl-grid"><div class="ws-empty">Loading…</div></div>
+
+<style>
+.gl-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:12px}
+.gl-card{border:1px solid var(--border);border-radius:var(--r-md);overflow:hidden;background:var(--bg-elev);cursor:pointer}
+.gl-card img{width:100%;height:160px;object-fit:cover;display:block;background:var(--bg-subtle)}
+.gl-card .gl-cap{padding:8px 10px;font-size:12px;color:var(--text-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+</style>
+
+<script>
+(function(){
+  const grid=document.getElementById('glGrid'); if(!grid||grid.dataset.bound==='1') return; grid.dataset.bound='1';
+  const esc=window.escapeHtml;
+  function imgSrc(u){ if(!u) return ''; if(/^https?:/.test(u)) return u; return '/api/oui/'+String(u).replace(/^\/api\//,'').replace(/^\//,''); }
+  async function load(){
+    grid.innerHTML='<div class="ws-empty">Loading…</div>';
+    const d=await window.oui.get('/gallery/library?limit=60');
+    const items=(d&&(d.items||d.images))||[];
+    if(!items.length){ grid.innerHTML='<div class="ws-empty">No images yet. Generated images and uploads will appear here.</div>'; return; }
+    grid.innerHTML='';
+    for(const im of items){
+      const c=document.createElement('div'); c.className='gl-card';
+      c.innerHTML='<img loading="lazy" src="'+esc(imgSrc(im.url||im.thumbnail||''))+'" alt=""><div class="gl-cap">'+esc(im.prompt||im.filename||'image')+'</div>';
+      c.onclick=()=>window.openModal('<div class="modal-head"><h3>Image</h3><button class="icon-btn" data-close><span class="material-symbols-rounded">close</span></button></div><div class="modal-body"><img src="'+esc(imgSrc(im.url||''))+'" style="max-width:100%;border-radius:var(--r)"><div style="font-size:13px;color:var(--text-muted);margin-top:8px">'+esc(im.prompt||'')+(im.model?(' · '+esc(im.model)):'')+'</div></div>');
+      grid.appendChild(c);
+    }
+  }
+  document.getElementById('glRefresh').onclick=load; load();
+})();
+</script>
