@@ -19,6 +19,9 @@ class Specialist:
     description: str          # shown to the lead planner to pick the right agent
     specialization: str       # appended to the base system prompt
     tools: Set[str]
+    council: bool = False     # part of the "Agents Office" council roster
+    dept_code: str = ""       # short department code shown in the council UI (R&D, BIZ…)
+    model: Optional[str] = None  # future: per-agent model override
 
 
 # --- Roster -----------------------------------------------------------------
@@ -33,11 +36,100 @@ SPECIALISTS: Dict[str, Specialist] = {
             "latest / what is X' about the world (not the user's own data)."
         ),
         specialization=(
-            "You are the RESEARCH specialist. Use web_search then fetch_url to read "
-            "the best sources before answering. Cite the source URLs. Never invent "
-            "facts or URLs; if the web gives nothing, say so."
+            "You are the RESEARCH specialist on the council. Research the market, "
+            "competitors, the tech landscape and feasibility for the project. Use "
+            "web_search then fetch_url to read the best sources; cite source URLs. "
+            "Produce a concise findings brief the rest of the council can build on. "
+            "Never invent facts or URLs; if the web gives nothing, say so."
         ),
         tools={"web_search", "fetch_url", "deep_research", "recall_memory"},
+        council=True, dept_code="R&D",
+    ),
+    "business": Specialist(
+        name="business",
+        title="Business / Strategy",
+        description=(
+            "Business strategy for a project: business model, monetisation, pricing, "
+            "target market, positioning, and a go/no-go recommendation."
+        ),
+        specialization=(
+            "You are the BUSINESS/STRATEGY specialist on the council. Given the "
+            "research, define the business model, monetisation, pricing, target "
+            "segment and positioning, and give a clear go/no-go with reasoning. Be "
+            "concrete and commercial; quantify where you can."
+        ),
+        tools={"web_search", "deep_research", "recall_memory"},
+        council=True, dept_code="BIZ",
+    ),
+    "architect": Specialist(
+        name="architect",
+        title="Architect",
+        description=(
+            "Technical design: turns requirements into a build-ready blueprint — "
+            "system/components, data flow, tech-stack choice, data model + APIs, key "
+            "decisions and risks (scalability/security/cost)."
+        ),
+        specialization=(
+            "You are the ARCHITECT specialist on the council. Turn the research + "
+            "business requirements into a build-ready technical blueprint: system "
+            "components and data flow, a recommended tech stack with trade-offs, the "
+            "data model and key API/interface contracts, and the main technical "
+            "decisions + risks (scalability, security, cost). Decompose it into "
+            "pieces the developer can build. Be specific, not generic."
+        ),
+        tools={"recall_memory", "web_search", "fetch_url"},
+        council=True, dept_code="ARC",
+    ),
+    "developer": Specialist(
+        name="developer",
+        title="Developer",
+        description=(
+            "Turns the architect's blueprint into a concrete implementation plan "
+            "and prototype code. Can write files only with explicit user approval."
+        ),
+        specialization=(
+            "You are the DEVELOPER specialist on the council. Turn the architect's "
+            "blueprint into a concrete implementation plan (milestones, key modules) "
+            "and prototype code for the riskiest/most central pieces. Write correct, "
+            "runnable code in fenced ``` blocks with a language tag. Only use "
+            "write_file when the user has approved it; otherwise propose the code in "
+            "your report. Note assumptions and edge cases."
+        ),
+        tools={"web_search", "fetch_url", "recall_memory", "write_file"},
+        council=True, dept_code="DEV",
+    ),
+    "marketing": Specialist(
+        name="marketing",
+        title="Marketing & Growth",
+        description=(
+            "Go-to-market: positioning, messaging, launch strategy, content ideas, "
+            "and distribution channels for the project."
+        ),
+        specialization=(
+            "You are the MARKETING & GROWTH specialist on the council. Given the "
+            "product and business model, produce positioning + messaging, a launch "
+            "plan, concrete content ideas, and the best distribution channels with "
+            "rationale. Be specific to the actual product and audience."
+        ),
+        tools={"web_search", "deep_research", "recall_memory"},
+        council=True, dept_code="MKT",
+    ),
+    "critic": Specialist(
+        name="critic",
+        title="Critic / Reviewer",
+        description=(
+            "Adversarially reviews the whole council's output — finds gaps, risks, "
+            "weak assumptions and contradictions — before the final plan."
+        ),
+        specialization=(
+            "You are the CRITIC/REVIEWER on the council. You receive the other "
+            "agents' outputs. Stress-test them: call out gaps, risky assumptions, "
+            "contradictions, missing steps, and the single biggest threat to the "
+            "project. Be specific and constructive — end with the top 3 things to "
+            "fix before proceeding. Do not rewrite their work; critique it."
+        ),
+        tools={"recall_memory", "web_search"},
+        council=True, dept_code="REV",
     ),
     "email": Specialist(
         name="email",
@@ -128,10 +220,27 @@ def get_specialist(name: str) -> Optional[Specialist]:
     return SPECIALISTS.get((name or "").strip().lower())
 
 
-def roster_for_planner() -> str:
-    """A compact roster string the lead planner uses to choose agents."""
-    return "\n".join(f"- {s.name}: {s.description}" for s in SPECIALISTS.values())
+def roster_for_planner(only: Optional[Set[str]] = None) -> str:
+    """A compact roster string the lead planner uses to choose agents.
+
+    ``only`` restricts the roster to those agent names (used by the Council so the
+    planner only picks council members)."""
+    vals = [s for s in SPECIALISTS.values() if (only is None or s.name in only)]
+    return "\n".join(f"- {s.name}: {s.description}" for s in vals)
 
 
 def specialist_names() -> List[str]:
     return list(SPECIALISTS.keys())
+
+
+def council_specialists() -> List[Specialist]:
+    """The default council roster, in pipeline order."""
+    order = ["research", "business", "architect", "developer", "marketing", "critic"]
+    out = [SPECIALISTS[n] for n in order if n in SPECIALISTS]
+    # include any other council-flagged agents not in the explicit order
+    out += [s for s in SPECIALISTS.values() if s.council and s not in out]
+    return out
+
+
+def council_names() -> Set[str]:
+    return {s.name for s in SPECIALISTS.values() if s.council}

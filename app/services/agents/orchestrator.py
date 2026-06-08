@@ -80,13 +80,17 @@ def _extract_json_array(text: str) -> Optional[list]:
         return None
 
 
-async def _plan(message: str) -> List[dict]:
-    """Ask the planner for a list of {agent, task, depends_on}. May be empty."""
+async def _plan(message: str, roster: Optional[set] = None) -> List[dict]:
+    """Ask the planner for a list of {agent, task, depends_on}. May be empty.
+
+    ``roster`` (a set of agent names) restricts which specialists the planner may
+    use — the Council passes its 6 members so the plan stays on-roster."""
     llm = get_llm_client()
+    max_steps = len(roster) if roster else MAX_STEPS
     sys = (
         "You are the LEAD agent for MyAi. Break the user's goal into the FEWEST "
-        "sub-tasks that fully achieve it (1-" + str(MAX_STEPS) + " steps), each "
-        "handled by exactly ONE specialist.\n\nSpecialists:\n" + roster_for_planner() +
+        "sub-tasks that fully achieve it (1-" + str(max_steps) + " steps), each "
+        "handled by exactly ONE specialist.\n\nSpecialists:\n" + roster_for_planner(roster) +
         "\n\nRules:\n"
         "- Independent steps run in PARALLEL — only add a dependency when a step "
         "truly needs an earlier step's output.\n"
@@ -108,12 +112,12 @@ async def _plan(message: str) -> List[dict]:
 
     raw = _extract_json_array(content) or []
     steps: List[dict] = []
-    for item in raw[:MAX_STEPS]:
+    for item in raw[:max_steps]:
         if not isinstance(item, dict):
             continue
         agent = str(item.get("agent", "")).strip().lower()
         task = str(item.get("task", "")).strip()
-        if agent not in SPECIALISTS or not task:
+        if agent not in SPECIALISTS or not task or (roster and agent not in roster):
             continue
         deps_in = item.get("depends_on") or []
         deps: List[int] = []
@@ -132,7 +136,8 @@ async def _plan(message: str) -> List[dict]:
     return steps
 
 
-async def _synthesize(message: str, steps: List[dict], results: Dict[int, str]) -> str:
+async def _synthesize(message: str, steps: List[dict], results: Dict[int, str],
+                      extra: str = "") -> str:
     llm = get_llm_client()
     blocks = "\n\n".join(
         f"[{steps[i]['agent']}] {results[i]}" for i in sorted(results) if results[i]
@@ -143,6 +148,8 @@ async def _synthesize(message: str, steps: List[dict], results: Dict[int, str]) 
         "Do NOT mention 'specialists', 'agents', or the planning — just answer the "
         "user directly and honestly (if a part failed, say so)."
     )
+    if extra:
+        sys += "\n\n" + extra
     try:
         r = await llm.chat(
             [{"role": "system", "content": sys},
@@ -166,14 +173,29 @@ async def run_orchestrator(
     today_iso: str,
     seed_context: str = "",
     progress: Optional[Callable[[str], None]] = None,
+    roster: Optional[set] = None,
+    on_event: Optional[Callable[[dict], None]] = None,
+    synth_extra: str = "",
 ) -> Dict[str, Any]:
-    """Returns {answer, plan, agents_used, steps, orchestrated, elapsed_ms}."""
+    """Returns {answer, plan, agents_used, steps, orchestrated, elapsed_ms}.
+
+    ``roster`` restricts the planner to a subset of specialists (Council use).
+    ``on_event`` receives structured progress dicts: {type:"plan",steps},
+    {type:"state",agent,state,task[,report]}, {type:"synthesizing"} — used to drive
+    the Council's live node graph and to persist per-agent reports."""
     t0 = time.monotonic()
 
     def _emit(msg: str) -> None:
         if progress:
             try:
                 progress(msg)
+            except Exception:  # noqa: BLE001
+                pass
+
+    def _event(ev: dict) -> None:
+        if on_event:
+            try:
+                on_event(ev)
             except Exception:  # noqa: BLE001
                 pass
 
@@ -185,7 +207,8 @@ async def run_orchestrator(
         )
 
     _emit("Planning…")
-    steps = await _plan(message)
+    steps = await _plan(message, roster)
+    _event({"type": "plan", "steps": steps})
 
     # --- Fallback: no usable plan -> single all-tools agent (today's behavior) ---
     if not steps:
@@ -202,7 +225,9 @@ async def run_orchestrator(
     if len(steps) == 1:
         sp = get_specialist(steps[0]["agent"])
         _emit(f"{sp.title} working…")
+        _event({"type": "state", "agent": sp.name, "state": "working", "task": steps[0]["task"]})
         answer, tools = await _run_specialist(steps[0]["task"], sp, seed_context)
+        _event({"type": "state", "agent": sp.name, "state": "ready", "task": steps[0]["task"], "report": answer})
         return {
             "answer": answer, "plan": steps, "agents_used": [sp.name],
             "steps": [{"agent": sp.name, "task": steps[0]["task"], "result": answer}],
@@ -227,6 +252,7 @@ async def run_orchestrator(
         seed = "\n\n".join(x for x in (seed_context, dep_ctx) if x)
         async with sem:
             _emit(f"{sp.title}: {steps[i]['task'][:60]}")
+            _event({"type": "state", "agent": sp.name, "state": "working", "task": steps[i]["task"]})
             try:
                 ans, tools = await _run_specialist(steps[i]["task"], sp, seed)
             except Exception as exc:  # noqa: BLE001
@@ -234,6 +260,7 @@ async def run_orchestrator(
                 ans, tools = f"(The {sp.name} step could not complete: {exc})", []
         results[i] = ans
         step_tools[i] = tools
+        _event({"type": "state", "agent": sp.name, "state": "ready", "task": steps[i]["task"], "report": ans})
 
     while remaining:
         ready = [i for i in remaining if all(d in done for d in steps[i]["depends_on"])]
@@ -246,7 +273,8 @@ async def run_orchestrator(
             agents_used.append(steps[i]["agent"])
 
     _emit("Synthesizing…")
-    answer = await _synthesize(message, steps, results)
+    _event({"type": "synthesizing"})
+    answer = await _synthesize(message, steps, results, synth_extra)
 
     all_tools = sorted({t for ts in step_tools.values() for t in ts})
     return {

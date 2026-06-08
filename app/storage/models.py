@@ -78,6 +78,50 @@ class ScheduledEmail(Base):
     )
 
 
+class CouncilProject(Base):
+    """A project the Agents Office "council" works on (e.g. a product/venture)."""
+    __tablename__ = "council_projects"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    tenant_id: Mapped[str] = mapped_column(String(64), index=True, nullable=False)
+    creator_id: Mapped[str] = mapped_column(String(128), index=True, nullable=False)
+
+    name: Mapped[str] = mapped_column(String(256), nullable=False)
+    brief: Mapped[str] = mapped_column(Text, default="")  # the goal / description
+    status: Mapped[str] = mapped_column(String(16), default="active", index=True)  # active|archived
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now(), onupdate=func.now(), index=True
+    )
+
+
+class AgentReport(Base):
+    """A report artifact produced by a council agent — pending user approval.
+
+    Core safety model: agents produce reports; nothing is acted on until the user
+    approves. The final synthesized action plan is stored as agent='council'."""
+    __tablename__ = "agent_reports"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    tenant_id: Mapped[str] = mapped_column(String(64), index=True, nullable=False)
+    creator_id: Mapped[str] = mapped_column(String(128), index=True, nullable=False)
+
+    project_id: Mapped[Optional[int]] = mapped_column(Integer, index=True, nullable=True)
+    run_id: Mapped[Optional[str]] = mapped_column(String(64), index=True, nullable=True)
+    agent: Mapped[str] = mapped_column(String(32), nullable=False)  # research|business|…|council
+    title: Mapped[str] = mapped_column(String(256), default="")
+    content: Mapped[str] = mapped_column(Text, default="")
+    # draft|awaiting_approval|approved|rejected
+    status: Mapped[str] = mapped_column(String(20), default="awaiting_approval", index=True)
+
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), index=True)
+    decided_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+
+    __table_args__ = (
+        Index("ix_report_proj_status", "project_id", "status"),
+    )
+
+
 # NOTE: connector accounts are managed by ``app.services.connector_manager`` via
 # its own aiosqlite table ``user_connections`` (so OAuth tokens stay isolated
 # from the SQLAlchemy ORM). See that module for the schema.

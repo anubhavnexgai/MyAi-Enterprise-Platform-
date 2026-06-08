@@ -21,6 +21,7 @@ const ROUTES = {
   memory: "pages/memory.html",
   cookbook: "pages/cookbook.html",
   research: "pages/research.html",
+  agents: "pages/agents.html",
 };
 
 // Shared helper for the Odysseus-backed workspace pages: thin wrappers around
@@ -130,7 +131,7 @@ async function safeFetchJson(url, options = {}) {
 /* ---------- Router ---------- */
 // Bump this to force every page fragment to refetch (defeats SW + HTTP cache,
 // which otherwise serve stale pages/*.html even when the server has new ones).
-const ASSET_BUILD = "20260608e";
+const ASSET_BUILD = "20260609b";
 async function loadFragment(route) {
   const path = ROUTES[route] || ROUTES.dashboard;
   try {

@@ -1,0 +1,289 @@
+<div class="page-header">
+  <div>
+    <h1 class="page-title">Agents Office</h1>
+    <div class="page-subtitle">The Council — agents research, design &amp; plan a project together. They produce reports; nothing is acted on until you approve.</div>
+  </div>
+  <div style="display:flex;gap:8px;flex-wrap:wrap">
+    <button class="btn" id="aoRefresh"><span class="material-symbols-rounded">refresh</span> Refresh</button>
+  </div>
+</div>
+
+<!-- Council orchestrator + agent graph -->
+<div class="card card-pad ao-graph">
+  <div class="ao-council">
+    <div class="ao-ring" id="aoRing">
+      <div class="ao-core">
+        <div class="ao-core-title">THE COUNCIL</div>
+        <div class="ao-core-sub" id="aoCouncilSub">idle</div>
+      </div>
+    </div>
+  </div>
+  <div class="ao-pipeline" id="aoPipeline">
+    <div class="ws-empty" style="padding:20px">Loading council…</div>
+  </div>
+</div>
+
+<!-- Run bar -->
+<div class="card card-pad">
+  <label class="ws-field">Project goal
+    <textarea id="aoGoal" rows="2" placeholder="e.g. A simple habit-tracker mobile app for students"></textarea>
+  </label>
+  <div class="ws-row" style="margin-top:8px;align-items:flex-end;flex-wrap:wrap;gap:10px">
+    <label class="ws-field" style="max-width:260px">Project (optional)
+      <select class="ws-input" id="aoProject"><option value="">— New / unsaved —</option></select>
+    </label>
+    <button class="btn btn-primary" id="aoRun" style="margin-bottom:2px"><span class="material-symbols-rounded">groups</span> Run Full Council Review</button>
+    <button class="btn" id="aoSaveProj" style="margin-bottom:2px"><span class="material-symbols-rounded">bookmark_add</span> Save as project</button>
+  </div>
+  <div class="ao-chips" id="aoChips" style="margin-top:10px"></div>
+</div>
+
+<!-- Live run -->
+<div class="card card-pad" id="aoProgress" style="display:none;margin-top:14px"></div>
+
+<!-- Status + reports -->
+<div class="ao-cols">
+  <div class="card card-pad ao-status">
+    <div class="ws-toolbar"><h3 style="margin:0" class="ws-grow">Council Status</h3></div>
+    <div class="ao-stat"><span>Awaiting approval</span><b id="aoAwait" class="pill pill-orange">0</b></div>
+    <div class="ao-stat"><span>Council members</span><b id="aoCount">6</b></div>
+    <div class="ao-stat"><span>Status</span><b id="aoLive">idle</b></div>
+    <div class="card-sub" style="margin-top:10px">Agents generate <b>reports only</b> — approve a report to accept it into the pipeline.</div>
+  </div>
+  <div class="card ao-reports">
+    <div class="card-pad" style="padding-bottom:8px"><div class="ws-toolbar"><h3 style="margin:0" class="ws-grow">Reports waiting for approval</h3></div></div>
+    <div id="aoAwaitList" class="ao-rep-list"></div>
+    <div class="card-pad" style="padding-top:6px;padding-bottom:8px"><h4 style="margin:0;color:var(--text-muted);font-size:12px;text-transform:uppercase;letter-spacing:.04em">Recent reports</h4></div>
+    <div id="aoRecentList" class="ao-rep-list"></div>
+  </div>
+</div>
+
+<style>
+.ao-graph{margin-top:6px;display:flex;flex-direction:column;align-items:center;gap:6px}
+.ao-council{display:flex;justify-content:center;padding:6px 0 2px}
+.ao-ring{width:128px;height:128px;border-radius:50%;display:flex;align-items:center;justify-content:center;
+  background:radial-gradient(circle at 50% 40%, var(--accent-softer), transparent 70%);
+  border:1.5px dashed var(--accent);position:relative}
+.ao-ring.run{animation:ao-spin 6s linear infinite}
+@keyframes ao-spin{to{transform:rotate(360deg)}}
+.ao-core{width:96px;height:96px;border-radius:50%;background:var(--accent);color:#fff;display:flex;flex-direction:column;
+  align-items:center;justify-content:center;box-shadow:0 6px 22px rgba(8,145,178,.35);text-align:center}
+.ao-ring.run .ao-core{animation:ao-spin 6s linear infinite reverse}
+.ao-core-title{font-size:11px;font-weight:800;letter-spacing:.06em}
+.ao-core-sub{font-size:10px;opacity:.85;margin-top:2px;max-width:80px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ao-pipeline{display:flex;gap:0;align-items:stretch;overflow-x:auto;padding:14px 4px 4px;width:100%;justify-content:flex-start}
+.ao-agent{flex:0 0 188px;border:1.5px solid var(--border);border-radius:var(--r-md);background:var(--bg-elev);
+  padding:11px 12px;position:relative;transition:border-color .25s,box-shadow .25s,transform .15s}
+.ao-agent:not(:last-child){margin-right:34px}
+.ao-agent:not(:last-child)::after{content:"→";position:absolute;right:-26px;top:50%;transform:translateY(-50%);
+  color:var(--text-soft);font-size:18px;font-weight:700}
+.ao-agent.clickable{cursor:pointer}
+.ao-agent.clickable:hover{transform:translateY(-2px);box-shadow:0 4px 14px rgba(0,0,0,.07)}
+.ao-agent-head{display:flex;align-items:center;justify-content:space-between;gap:6px;margin-bottom:6px}
+.ao-dept{font-size:10px;font-weight:800;letter-spacing:.05em;color:var(--text-muted);background:var(--bg);border:1px solid var(--border);border-radius:var(--r-sm);padding:1px 6px}
+.ao-agent-title{font-weight:700;color:var(--text-strong);font-size:13.5px}
+.ao-agent-task{font-size:11.5px;color:var(--text-muted);margin-top:5px;min-height:30px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.ao-sbadge{font-size:9.5px;font-weight:800;letter-spacing:.05em;padding:2px 7px;border-radius:var(--r-pill);text-transform:uppercase}
+.ao-agent.state-idle{border-color:var(--border)}
+.ao-agent.state-idle .ao-sbadge{background:var(--bg);color:var(--text-soft);border:1px solid var(--border)}
+.ao-agent.state-waiting{border-color:var(--orange)}
+.ao-agent.state-waiting .ao-sbadge{background:rgba(245,158,11,.14);color:var(--orange)}
+.ao-agent.state-working{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-softer)}
+.ao-agent.state-working .ao-sbadge{background:var(--accent-soft);color:var(--accent)}
+.ao-agent.state-working::before{content:"";position:absolute;top:9px;right:10px;width:7px;height:7px;border-radius:50%;background:var(--accent);animation:pulse 1.3s infinite}
+.ao-agent.state-ready{border-color:var(--green)}
+.ao-agent.state-ready .ao-sbadge{background:rgba(16,185,129,.14);color:var(--green)}
+.ao-chips{display:flex;gap:8px;flex-wrap:wrap}
+.ao-chip{border:1px solid var(--border);background:var(--bg);color:var(--text);border-radius:var(--r-pill);padding:5px 12px;font-size:12.5px;font-weight:600;cursor:pointer}
+.ao-chip:hover{border-color:var(--accent);color:var(--accent)}
+.ao-cols{display:grid;grid-template-columns:280px 1fr;gap:16px;margin-top:16px}
+@media (max-width:820px){.ao-cols{grid-template-columns:1fr}}
+.ao-stat{display:flex;align-items:center;justify-content:space-between;padding:7px 0;border-bottom:1px solid var(--border);font-size:13px}
+.ao-stat:last-of-type{border-bottom:none}
+.ao-rep-list{display:flex;flex-direction:column}
+.ao-rep{display:flex;align-items:center;gap:10px;padding:10px 16px;border-top:1px solid var(--border);cursor:pointer}
+.ao-rep:hover{background:var(--bg)}
+.ao-rep .ao-rep-main{flex:1;min-width:0}
+.ao-rep .ao-rep-title{font-weight:600;font-size:13px;color:var(--text-strong);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ao-rep .ao-rep-sub{font-size:11.5px;color:var(--text-muted);margin-top:2px}
+.ao-log{font-size:13px;color:var(--text);display:flex;flex-direction:column;gap:6px;max-height:240px;overflow:auto}
+.ao-log .ao-line{display:flex;gap:8px;align-items:flex-start}
+.ao-log .material-symbols-rounded{font-size:16px;color:var(--accent)}
+</style>
+
+<script>
+(function(){
+  const root=document.getElementById('aoPipeline'); if(!root||root.dataset.bound==='1') return; root.dataset.bound='1';
+  const esc=window.escapeHtml||(s=>s), toast=window.toast||console.log;
+  const md=window.renderMarkdownSafe||esc;
+  const SJ=window.safeFetchJson;
+  const AGENTS=['research','business','architect','developer','marketing','critic'];
+  const CHIPS=[['research','Research Brief'],['business','Business Plan'],['architect','Architecture'],['developer','Prototype Code'],['marketing','Launch Strategy'],['critic','Critique']];
+  let running=false, agentMap={};
+
+  function badge(state){ return (state||'idle').toUpperCase(); }
+
+  function renderAgents(list){
+    agentMap={}; list.forEach(a=>agentMap[a.name]=a);
+    root.innerHTML = list.map(a=>(
+      '<div class="ao-agent state-'+esc(a.state||'idle')+' clickable" data-agent="'+esc(a.name)+'">'+
+        '<div class="ao-agent-head"><span class="ao-dept">'+esc(a.dept_code||'')+'</span>'+
+          '<span class="ao-sbadge">'+esc(badge(a.state))+'</span></div>'+
+        '<div class="ao-agent-title">'+esc(a.title||a.name)+'</div>'+
+        '<div class="ao-agent-task">'+(a.task?esc(a.task):'<span style="color:var(--text-soft)">No task yet</span>')+'</div>'+
+      '</div>'
+    )).join('') || '<div class="ws-empty">No agents.</div>';
+    root.querySelectorAll('.ao-agent').forEach(el=>el.onclick=()=>openAgent(el.dataset.agent));
+    document.getElementById('aoCount').textContent=list.length;
+  }
+
+  function setAgentState(name,state,task){
+    const a=agentMap[name]; if(a){ a.state=state; if(task!=null) a.task=task; }
+    const el=root.querySelector('.ao-agent[data-agent="'+name+'"]'); if(!el) return;
+    el.className='ao-agent clickable state-'+state;
+    el.querySelector('.ao-sbadge').textContent=badge(state);
+    if(task!=null){ const t=el.querySelector('.ao-agent-task'); t.textContent=task; }
+  }
+
+  function setCouncil(sub, run){
+    document.getElementById('aoCouncilSub').textContent=sub||'idle';
+    document.getElementById('aoLive').textContent=run?'running':'idle';
+    document.getElementById('aoRing').classList.toggle('run',!!run);
+  }
+
+  async function loadAgents(){
+    const d=await SJ('/api/council/agents'); if(!d) return;
+    renderAgents(d.agents||[]); setCouncil(d.running?'working…':'idle', d.running); running=d.running;
+  }
+
+  async function loadProjects(){
+    const d=await SJ('/api/council/projects'); const sel=document.getElementById('aoProject');
+    const cur=sel.value; sel.innerHTML='<option value="">— New / unsaved —</option>'+
+      ((d&&d.projects)||[]).map(p=>'<option value="'+p.id+'">'+esc(p.name)+'</option>').join('');
+    if(cur) sel.value=cur;
+  }
+
+  function repRow(r){
+    const when=(r.created_at||'').slice(0,16).replace('T',' ');
+    return '<div class="ao-rep" data-id="'+r.id+'"><div class="ao-rep-main">'+
+      '<div class="ao-rep-title">'+esc(r.title||r.agent)+'</div>'+
+      '<div class="ao-rep-sub">'+esc(r.agent)+' · '+esc(when)+'</div></div>'+
+      '<span class="pill '+(r.status==='approved'?'pill-green':r.status==='rejected'?'pill-red':'pill-orange')+'">'+esc(r.status.replace('_',' '))+'</span></div>';
+  }
+
+  async function loadReports(){
+    const d=await SJ('/api/council/reports?limit=60'); const reps=(d&&d.reports)||[];
+    const awaiting=reps.filter(r=>r.status==='awaiting_approval');
+    const recent=reps.filter(r=>r.status!=='awaiting_approval').slice(0,8);
+    document.getElementById('aoAwait').textContent=awaiting.length;
+    const aw=document.getElementById('aoAwaitList'), rc=document.getElementById('aoRecentList');
+    aw.innerHTML=awaiting.length?awaiting.map(repRow).join(''):'<div class="ws-empty" style="padding:14px 16px">No reports awaiting approval.</div>';
+    rc.innerHTML=recent.length?recent.map(repRow).join(''):'<div class="ws-empty" style="padding:14px 16px">No recent reports.</div>';
+    const byId={}; reps.forEach(r=>byId[r.id]=r);
+    document.querySelectorAll('.ao-rep').forEach(el=>el.onclick=()=>openReport(byId[el.dataset.id]));
+  }
+
+  function openReport(r){
+    if(!r) return;
+    const acts = (r.status==='awaiting_approval'
+      ? '<button class="btn btn-primary" data-act="approve"><span class="material-symbols-rounded">check</span> Approve</button>'+
+        '<button class="btn btn-danger" data-act="reject"><span class="material-symbols-rounded">close</span> Reject</button>'
+      : '')+
+      '<button class="btn" data-act="delete"><span class="material-symbols-rounded">delete</span> Delete</button>';
+    window.openModal('<div class="modal-head"><h3>'+esc(r.title||r.agent)+'</h3><button class="icon-btn" data-close><span class="material-symbols-rounded">close</span></button></div>'+
+      '<div class="modal-body"><div class="card-sub" style="margin-bottom:10px">'+esc(r.agent)+' · '+esc(r.status.replace("_"," "))+'</div>'+
+      '<div style="font-size:14px;line-height:1.6">'+md(r.content||'')+'</div></div>'+
+      '<div class="modal-foot" style="display:flex;gap:8px;justify-content:flex-end;padding:12px 16px;border-top:1px solid var(--border)">'+acts+'</div>');
+    document.querySelector('[data-act="approve"]')?.addEventListener('click',()=>decide(r.id,'approve'));
+    document.querySelector('[data-act="reject"]')?.addEventListener('click',()=>decide(r.id,'reject'));
+    document.querySelector('[data-act="delete"]')?.addEventListener('click',()=>delReport(r.id));
+  }
+
+  async function decide(id,act){
+    const d=await SJ('/api/council/reports/'+id+'/'+act,{method:'POST'});
+    if(d&&d.ok){ toast('Report '+act+'d','success'); window.closeModal&&window.closeModal(); loadReports(); loadAgents(); }
+    else toast('Could not '+act+' report','error');
+  }
+
+  async function delReport(id){
+    const d=await SJ('/api/council/reports/'+id,{method:'DELETE'});
+    if(d&&d.ok){ toast('Report deleted','success'); window.closeModal&&window.closeModal(); loadReports(); loadAgents(); }
+    else toast('Could not delete report','error');
+  }
+
+  function openAgent(name){
+    const a=agentMap[name]; if(!a) return;
+    const goal=document.getElementById('aoGoal').value.trim();
+    window.openModal('<div class="modal-head"><h3>'+esc(a.title||name)+'</h3><button class="icon-btn" data-close><span class="material-symbols-rounded">close</span></button></div>'+
+      '<div class="modal-body"><div class="card-sub">Department '+esc(a.dept_code||'')+' · state: '+esc(a.state||'idle')+'</div>'+
+      '<p style="font-size:13.5px;margin-top:10px">'+esc(a.task||'No current task.')+'</p>'+
+      '<p style="color:var(--text-muted);font-size:12.5px">Run just this agent on the project goal above to generate a fresh report (awaiting your approval).</p></div>'+
+      '<div class="modal-foot" style="display:flex;gap:8px;justify-content:flex-end;padding:12px 16px;border-top:1px solid var(--border)">'+
+      '<button class="btn btn-primary" data-act="run"><span class="material-symbols-rounded">play_arrow</span> Run '+esc(a.title||name)+'</button></div>');
+    document.querySelector('[data-act="run"]')?.addEventListener('click',()=>{ window.closeModal&&window.closeModal(); runCouncil(name); });
+  }
+
+  async function runCouncil(agent){
+    if(running){ toast('A council run is already in progress','error'); return; }
+    const goal=document.getElementById('aoGoal').value.trim();
+    if(!goal){ toast('Enter a project goal first','error'); document.getElementById('aoGoal').focus(); return; }
+    const project_id=document.getElementById('aoProject').value||null;
+    const body={goal}; if(project_id) body.project_id=parseInt(project_id); if(agent) body.agent=agent;
+    const r=await SJ('/api/council/run',{method:'POST',body});
+    if(!r||!r.run_id){ toast('Could not start the council','error'); return; }
+    try{ localStorage.setItem('council_active',r.run_id); }catch(e){}
+    streamRun(r.run_id,false);
+  }
+
+  async function streamRun(runId, resumed){
+    if(running) return; running=true;
+    setCouncil('planning…',true);
+    const prog=document.getElementById('aoProgress'); prog.style.display='';
+    prog.innerHTML='<div class="ws-toolbar"><b class="ws-grow" id="aoHead">'+(resumed?'Reconnecting to council…':'Council is working…')+'</b></div>'+
+      '<div class="ao-log" id="aoLog"><div class="ao-line"><span class="material-symbols-rounded">bolt</span>'+(resumed?'Resuming…':'Starting…')+'</div></div>';
+    const log=document.getElementById('aoLog');
+    function line(t){ const d=document.createElement('div'); d.className='ao-line'; d.innerHTML='<span class="material-symbols-rounded">arrow_right</span>'+esc(t); log.appendChild(d); log.scrollTop=log.scrollHeight; }
+    let finalStatus='';
+    try{
+      const res=await fetch('/api/council/run/'+runId+'/stream',{credentials:'include'});
+      const rd=res.body.getReader(); const dec=new TextDecoder(); let buf='';
+      while(true){ const {done,value}=await rd.read(); if(done) break; buf+=dec.decode(value,{stream:true});
+        const lines=buf.split('\n'); buf=lines.pop()||'';
+        for(const ln of lines){ if(!ln.startsWith('data:')) continue; let j; try{ j=JSON.parse(ln.slice(5).trim()); }catch(e){ continue; }
+          if(j.type==='plan'){ const names=(j.steps||[]).map(s=>s.agent); names.forEach(n=>setAgentState(n,'waiting')); line('Plan: '+(names.join(' → ')||'(single)')); setCouncil('planned',true); }
+          else if(j.type==='state'){ setAgentState(j.agent, j.state, j.task||null); if(j.state==='working'){ line((agentMap[j.agent]?.title||j.agent)+' — working…'); setCouncil((agentMap[j.agent]?.title||j.agent)+'…',true); } else if(j.state==='ready'){ line((agentMap[j.agent]?.title||j.agent)+' — report ready'); } }
+          else if(j.type==='synthesizing'){ line('Synthesizing the action plan…'); setCouncil('synthesizing…',true); }
+          else if(j.type==='done'){ finalStatus='done'; line('Council finished — action plan ready.');
+            document.getElementById('aoHead').textContent='Council complete';
+            prog.querySelector('.ws-toolbar').innerHTML='<b class="ws-grow">Council complete — action plan (awaiting your approval)</b>';
+            const plan=document.createElement('div'); plan.style.cssText='margin-top:10px;font-size:14px;line-height:1.6;border-top:1px solid var(--border);padding-top:10px'; plan.innerHTML=md(j.answer||''); prog.appendChild(plan);
+          }
+          else if(j.type==='error'){ finalStatus='error'; line('Error: '+(j.message||'failed')); }
+          else if(j.type==='final'){ finalStatus=finalStatus||j.status; break; }
+        }
+      }
+    }catch(e){ /* stream ended */ }
+    running=false; try{ localStorage.removeItem('council_active'); }catch(e){}
+    setCouncil('idle',false);
+    if(finalStatus==='error'){ toast('Council run failed — see the log','error'); }
+    else if(finalStatus){ toast('Council finished — review the reports','success'); }
+    loadAgents(); loadReports();
+  }
+
+  // Chips (per-agent quick runs)
+  document.getElementById('aoChips').innerHTML=CHIPS.map(c=>'<button class="ao-chip" data-agent="'+c[0]+'">'+esc(c[1])+'</button>').join('');
+  document.getElementById('aoChips').querySelectorAll('.ao-chip').forEach(b=>b.onclick=()=>runCouncil(b.dataset.agent));
+  document.getElementById('aoRun').onclick=()=>runCouncil(null);
+  document.getElementById('aoRefresh').onclick=()=>{ loadAgents(); loadReports(); loadProjects(); };
+  document.getElementById('aoSaveProj').onclick=async()=>{
+    const goal=document.getElementById('aoGoal').value.trim(); if(!goal){ toast('Enter a goal to save as a project','error'); return; }
+    const name=(goal.split('\n')[0]||goal).slice(0,60);
+    const d=await SJ('/api/council/projects',{method:'POST',body:{name,brief:goal}});
+    if(d&&d.id){ toast('Project saved','success'); await loadProjects(); document.getElementById('aoProject').value=d.id; } else toast('Could not save project','error');
+  };
+
+  loadAgents(); loadReports(); loadProjects();
+  // Resume an in-progress council run after a refresh / in another tab.
+  try{ const active=localStorage.getItem('council_active'); if(active) streamRun(active,true); }catch(e){}
+})();
+</script>

@@ -195,6 +195,17 @@ TOOL_SCHEMAS: List[Dict[str, Any]] = [
         "parameters": {"type": "object", "properties": {
             "amount": {"type": "integer", "description": "Scroll clicks, e.g. 500 (up) or -500 (down)."}},
             "required": ["amount"]}}},
+    {"type": "function", "function": {
+        "name": "write_file",
+        "description": (
+            "Write a file (prototype code, config, docs) to the council PROJECT WORKSPACE. "
+            "HIGH-RISK: gated by autonomy — only writes with the user's approval; paths are "
+            "confined to the workspace, you cannot write elsewhere on disk. If blocked, "
+            "propose the file content in your report instead so the user can approve it."),
+        "parameters": {"type": "object", "properties": {
+            "path": {"type": "string", "description": "Relative path within the workspace, e.g. 'src/app.py'."},
+            "content": {"type": "string", "description": "Full file contents to write."}},
+            "required": ["path", "content"]}}},
 ]
 
 _TOOL_NAMES = [t["function"]["name"] for t in TOOL_SCHEMAS]
@@ -482,6 +493,26 @@ async def _dispatch(name: str, args: Dict[str, Any], *, user, autonomy_level: in
             if name == "computer_scroll":
                 await cu.scroll(int(args.get("amount", 0)))
                 return f"Scrolled {args.get('amount', 0)}."
+
+        # --- File write (council project workspace) — gated, sandboxed --------
+        if name == "write_file":
+            allowed, needs_conf, reason = decide_write_gate(autonomy_level, "file_write", False)
+            if not allowed:
+                hint = ("Ask the user to approve this file write, or raise autonomy to L5."
+                        if needs_conf else "Tell the user to raise the autonomy slider — file writes are off at L1.")
+                return (f"BLOCKED ({reason}). Did NOT write the file. {hint} "
+                        "Propose the file content in your report instead so the user can approve it.")
+            import pathlib
+            base = (pathlib.Path("data/council_workspace") / (user.tenant_id or "t") / (user.sub or "u")).resolve()
+            rel = str(args.get("path", "")).strip().lstrip("/\\")
+            if not rel:
+                return "write_file needs a 'path'."
+            target = (base / rel).resolve()
+            if not str(target).startswith(str(base)):
+                return "BLOCKED: path escapes the project workspace."
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text(str(args.get("content", "")), encoding="utf-8")
+            return f"Wrote {len(str(args.get('content','')))} bytes to {rel} in the project workspace."
     except Exception as exc:  # noqa: BLE001
         logger.warning("tool %s failed: %s", name, exc)
         return f"Tool error: {exc}"

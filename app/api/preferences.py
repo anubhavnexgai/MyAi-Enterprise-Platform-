@@ -110,7 +110,9 @@ def autonomy_allows(level: int, action: str) -> tuple[bool, str]:
     medium_risk = {"approve", "tag", "snooze", "schedule"}
     # "control" = directly driving the user's mouse/keyboard (computer use) —
     # the highest-risk category, so it only auto-runs at L5 like send/delete.
-    high_risk = {"send", "delete", "cancel", "transfer", "pay", "control"}
+    # "file_write" = a council/agent writing to the file system — gated the same
+    # way (the "any file modification needs explicit approval" requirement).
+    high_risk = {"send", "delete", "cancel", "transfer", "pay", "control", "file_write"}
 
     if level <= 1:
         if action in low_risk:

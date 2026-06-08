@@ -8,6 +8,7 @@ from app.api import (
     connectors,
     copilot,
     copilot_uploads,
+    council,
     dashboard,
     files,
     inbox,
@@ -32,6 +33,7 @@ def register(app: FastAPI) -> None:
     app.include_router(threads.router)
     app.include_router(insights.router)
     app.include_router(admin.router)
+    app.include_router(council.router)
 
 
 __all__ = ["register"]
