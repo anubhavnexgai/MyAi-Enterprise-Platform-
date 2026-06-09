@@ -122,7 +122,7 @@
   const SJ=window.safeFetchJson;
   const AGENTS=['research','business','architect','developer','marketing','critic'];
   const CHIPS=[['research','Research Brief'],['business','Business Plan'],['architect','Architecture'],['developer','Prototype Code'],['marketing','Launch Strategy'],['critic','Critique']];
-  let running=false, agentMap={};
+  let running=false, agentMap={}, projectList=[];
 
   function badge(state){ return (state||'idle').toUpperCase(); }
 
@@ -161,9 +161,19 @@
 
   async function loadProjects(){
     const d=await SJ('/api/council/projects'); const sel=document.getElementById('aoProject');
+    projectList=(d&&d.projects)||[];
     const cur=sel.value; sel.innerHTML='<option value="">— New / unsaved —</option>'+
-      ((d&&d.projects)||[]).map(p=>'<option value="'+p.id+'">'+esc(p.name)+'</option>').join('');
+      projectList.map(p=>'<option value="'+p.id+'">'+esc(p.name)+'</option>').join('');
     if(cur) sel.value=cur;
+  }
+
+  async function saveProject(){
+    const name=(document.getElementById('aoProjName').value||'').trim();
+    if(!name){ toast('Enter a project name','error'); document.getElementById('aoProjName').focus(); return; }
+    const brief=document.getElementById('aoProjBrief').value||'';
+    const d=await SJ('/api/council/projects',{method:'POST',body:{name,brief}});
+    if(d&&d.id){ toast('Project "'+name+'" saved','success'); window.closeModal&&window.closeModal(); await loadProjects(); document.getElementById('aoProject').value=d.id; if(brief) document.getElementById('aoGoal').value=brief; }
+    else toast('Could not save project','error');
   }
 
   function repRow(r){
@@ -281,11 +291,24 @@
   document.getElementById('aoChips').querySelectorAll('.ao-chip').forEach(b=>b.onclick=()=>runCouncil(b.dataset.agent));
   document.getElementById('aoRun').onclick=()=>runCouncil(null);
   document.getElementById('aoRefresh').onclick=()=>{ loadAgents(); loadReports(); loadProjects(); };
-  document.getElementById('aoSaveProj').onclick=async()=>{
-    const goal=document.getElementById('aoGoal').value.trim(); if(!goal){ toast('Enter a goal to save as a project','error'); return; }
-    const name=(goal.split('\n')[0]||goal).slice(0,60);
-    const d=await SJ('/api/council/projects',{method:'POST',body:{name,brief:goal}});
-    if(d&&d.id){ toast('Project saved','success'); await loadProjects(); document.getElementById('aoProject').value=d.id; } else toast('Could not save project','error');
+  // Pick a saved project -> load its goal into the textarea.
+  document.getElementById('aoProject').onchange=function(){
+    const p=projectList.find(x=>String(x.id)===String(this.value));
+    if(p&&p.brief) document.getElementById('aoGoal').value=p.brief;
+  };
+  // Save as project -> name dialog (no more auto-naming).
+  document.getElementById('aoSaveProj').onclick=()=>{
+    const goal=document.getElementById('aoGoal').value.trim();
+    const suggested=(goal.split('\n')[0]||goal||'Untitled project').slice(0,60);
+    window.openModal('<div class="modal-head"><h3>Save as project</h3><button class="icon-btn" data-close><span class="material-symbols-rounded">close</span></button></div>'+
+      '<div class="modal-body"><label class="ws-field" style="margin-bottom:12px">Project name'+
+      '<input class="ws-input" id="aoProjName" value="'+esc(suggested)+'" placeholder="e.g. Freelancer Invoicing App" autocomplete="off"></label>'+
+      '<label class="ws-field">Goal / brief'+
+      '<textarea class="ws-input" id="aoProjBrief" rows="3" placeholder="What is this project about?">'+esc(goal)+'</textarea></label></div>'+
+      '<div class="modal-foot" style="display:flex;gap:8px;justify-content:flex-end;padding:12px 16px;border-top:1px solid var(--border)">'+
+      '<button class="btn" data-close>Cancel</button><button class="btn btn-primary" data-act="save"><span class="material-symbols-rounded">bookmark_add</span> Save project</button></div>');
+    const nameEl=document.getElementById('aoProjName'); if(nameEl){ nameEl.focus(); nameEl.select(); nameEl.onkeydown=e=>{ if(e.key==='Enter') saveProject(); }; }
+    document.querySelector('[data-act="save"]')?.addEventListener('click',saveProject);
   };
 
   loadAgents(); loadReports(); loadProjects();
