@@ -69,11 +69,16 @@
 .oc-side-search input{flex:1;border:0;background:transparent;outline:none;color:var(--text)}
 .oc-side-label{font-size:11px;text-transform:uppercase;letter-spacing:.04em;color:var(--text-soft);margin:2px}
 .oc-session-list{overflow:auto;display:flex;flex-direction:column;gap:2px;flex:1}
-.oc-session-item{display:flex;flex-direction:column;gap:2px;padding:8px 10px;border-radius:var(--r);cursor:pointer;border:1px solid transparent}
+.oc-session-item{display:flex;flex-direction:row;align-items:center;gap:8px;padding:8px 10px;border-radius:var(--r);cursor:pointer;border:1px solid transparent}
 .oc-session-item:hover{background:var(--bg-hover)}
 .oc-session-item.active{background:var(--accent-soft);border-color:var(--accent)}
+.oc-session-main{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}
 .oc-session-name{font-size:13px;color:var(--text-strong);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .oc-session-time{font-size:11px;color:var(--text-soft)}
+.oc-session-del{opacity:0;flex:0 0 auto;border:none;background:none;color:var(--text-soft);cursor:pointer;padding:4px;border-radius:6px;display:flex;transition:opacity .12s,background .12s,color .12s}
+.oc-session-item:hover .oc-session-del{opacity:1}
+.oc-session-del:hover{background:var(--red-soft);color:var(--red)}
+.oc-session-del .material-symbols-rounded{font-size:17px}
 .oc-empty-note{color:var(--text-soft);font-size:12px;padding:8px 4px}
 /* main */
 .oc-main{display:flex;flex-direction:column;min-width:0;min-height:0}
@@ -245,7 +250,21 @@
     const list=await jget('/sessions'); const el=$('#ocSessions'); const arr=Array.isArray(list)?list:(list&&list.sessions)||[];
     if(!arr.length){ el.innerHTML='<div class="oc-empty-note">No chats yet</div>'; return; }
     el.innerHTML='';
-    for(const s of arr){ const it=document.createElement('div'); it.className='oc-session-item'+(s.id===state.sid?' active':''); it.innerHTML='<div class="oc-session-name">'+esc(s.name||s.title||'Chat')+'</div><div class="oc-session-time">'+esc(fmt(s.updated_at||s.created_at||''))+'</div>'; it.onclick=()=>selectSession(s.id); el.appendChild(it); }
+    for(const s of arr){
+      const it=document.createElement('div'); it.className='oc-session-item'+(s.id===state.sid?' active':'');
+      const nm=s.name||s.title||'Chat';
+      it.innerHTML='<div class="oc-session-main"><div class="oc-session-name">'+esc(nm)+'</div><div class="oc-session-time">'+esc(fmt(s.updated_at||s.created_at||''))+'</div></div>'+
+        '<button class="oc-session-del" title="Delete chat"><span class="material-symbols-rounded">delete</span></button>';
+      it.querySelector('.oc-session-main').onclick=()=>selectSession(s.id);
+      it.querySelector('.oc-session-del').onclick=(e)=>{ e.stopPropagation(); delChat(s.id, nm); };
+      el.appendChild(it);
+    }
+  }
+  async function delChat(id, name){
+    if(!confirm('Delete chat "'+name+'"? This cannot be undone.')) return;
+    try{ await fetch(OUI+'/session/'+id,{method:'DELETE',credentials:'include'}); }catch(e){}
+    if(state.sid===id){ newChat(); } else { loadSessions(); }
+    notify('Chat deleted','success');
   }
   function fmt(t){ if(!t) return ''; try{ const d=new Date(t); if(isNaN(d)) return ''; return d.toLocaleDateString()+' '+d.toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'}); }catch(e){return '';} }
   async function selectSession(id){
