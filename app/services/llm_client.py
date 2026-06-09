@@ -11,9 +11,10 @@ Single env switch — zero code changes between local and cloud:
 """
 from __future__ import annotations
 
+import json
 import logging
 import os
-from typing import Any, Dict, List, Optional
+from typing import Any, AsyncIterator, Dict, List, Optional
 
 import httpx
 
@@ -59,6 +60,72 @@ class LLMClient:
         if self.provider == "ollama":
             return await self._ollama_chat(messages, model, tools, temperature, max_tokens)
         return await self._openai_compat_chat(messages, model, tools, temperature, max_tokens)
+
+    async def chat_stream(
+        self,
+        messages: List[Dict[str, Any]],
+        *,
+        model: Optional[str] = None,
+        temperature: float = 0.5,
+        max_tokens: Optional[int] = None,
+    ) -> AsyncIterator[str]:
+        """Yield text deltas from a streaming completion (OpenAI-compatible).
+
+        For Ollama (or on any streaming failure) it falls back to a single
+        non-streamed chunk, so callers can always just iterate."""
+        if self.provider != "openai_compat":
+            r = await self.chat(messages, model=model, temperature=temperature, max_tokens=max_tokens)
+            yield ((r.get("message", {}) or {}).get("content") or "")
+            return
+        body: Dict[str, Any] = {
+            "model": model or self.model, "messages": messages,
+            "temperature": temperature, "stream": True,
+        }
+        if max_tokens:
+            body["max_tokens"] = max_tokens
+        primary = model or self.model
+        candidates = [primary] + [m for m in self.fallback_models if m != primary]
+        _RETRY = {429, 500, 502, 503, 504}
+        last_exc: Optional[Exception] = None
+        async with httpx.AsyncClient(timeout=self.timeout) as c:
+            for cand in candidates:
+                body["model"] = cand
+                try:
+                    async with c.stream("POST", f"{self.base_url}/chat/completions",
+                                        json=body, headers=self._headers()) as r:
+                        if r.status_code in _RETRY:
+                            await r.aread()
+                            last_exc = RuntimeError(f"{r.status_code} from {cand}")
+                            logger.warning("llm stream %s -> HTTP %s; trying next", cand, r.status_code)
+                            continue
+                        r.raise_for_status()
+                        got = False
+                        async for line in r.aiter_lines():
+                            if not line or not line.startswith("data:"):
+                                continue
+                            data = line[5:].strip()
+                            if data == "[DONE]":
+                                break
+                            try:
+                                j = json.loads(data)
+                            except Exception:
+                                continue
+                            delta = (((j.get("choices") or [{}])[0]).get("delta") or {}).get("content")
+                            if delta:
+                                got = True
+                                yield delta
+                        if got:
+                            return
+                except (httpx.HTTPStatusError, httpx.TimeoutException, httpx.TransportError) as e:
+                    last_exc = e
+                    logger.warning("llm stream to %s failed (%s); trying next", cand, e)
+                    continue
+        # Streaming failed for all candidates — fall back to one non-streamed answer.
+        try:
+            r = await self.chat(messages, model=primary, temperature=temperature)
+            yield ((r.get("message", {}) or {}).get("content") or "")
+        except Exception:  # noqa: BLE001
+            yield ""
 
     async def embed(
         self, texts: List[str], *, model: Optional[str] = None

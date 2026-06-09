@@ -169,7 +169,8 @@
   const root=document.getElementById('ody-chat-root'); if(!root || root.dataset.bound==='1') return; root.dataset.bound='1';
   const OUI='/api/oui'; const $=s=>root.querySelector(s);
   const hist=$('#ocHistory'), input=$('#ocInput');
-  const state={sid:null, model:null, mode:'agent', web:false, bash:false, models:[], streaming:false, lastUser:'', msgCount:0};
+  const state={sid:null, model:null, mode:'agent', web:false, bash:false, models:[], streaming:false, lastUser:'', msgCount:0, history:[]};
+  const API='/api';  // native MyAi backend (real connectors + reliable thread persistence)
   const esc=s=>(window.escapeHtml?window.escapeHtml(s):String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])));
   const notify=(m,t)=>(window.toast?window.toast(m,t||'info'):console.log(m));
   const now=()=>new Date().toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'});
@@ -195,6 +196,8 @@
   // ---------- models ----------
   function isChatModel(m){ return !/embed/i.test(String(m)); }
   async function loadModels(){
+    // Native MyAi chat uses one server-side model (OpenRouter); the picker is informational.
+    state.models=[]; state.model={model:'MyAi'}; paintModel(); return;
     const d=await jget('/models'); const items=(d&&(d.items||d.models))||[]; state.models=items;
     // Reasoning models (kimi / deepseek-r1 / qwq …) leak their chain-of-thought
     // into answers, so we never DEFAULT to them (the user can still pick one).
@@ -247,7 +250,8 @@
 
   // ---------- sessions ----------
   async function loadSessions(){
-    const list=await jget('/sessions'); const el=$('#ocSessions'); const arr=Array.isArray(list)?list:(list&&list.sessions)||[];
+    const list=await fetch(API+'/threads',{credentials:'include'}).then(r=>r.ok?r.json():null).catch(()=>null);
+    const el=$('#ocSessions'); const arr=(list&&list.threads)||[];
     if(!arr.length){ el.innerHTML='<div class="oc-empty-note">No chats yet</div>'; return; }
     el.innerHTML='';
     for(const s of arr){
@@ -262,18 +266,18 @@
   }
   async function delChat(id, name){
     if(!confirm('Delete chat "'+name+'"? This cannot be undone.')) return;
-    try{ await fetch(OUI+'/session/'+id,{method:'DELETE',credentials:'include'}); }catch(e){}
+    try{ await fetch(API+'/threads/'+id,{method:'DELETE',credentials:'include'}); }catch(e){}
     if(state.sid===id){ newChat(); } else { loadSessions(); }
     notify('Chat deleted','success');
   }
   function fmt(t){ if(!t) return ''; try{ const d=new Date(t); if(isNaN(d)) return ''; return d.toLocaleDateString()+' '+d.toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'}); }catch(e){return '';} }
   async function selectSession(id){
-    state.sid=id; const data=await jget('/session/'+id+'/messages'); const msgs=(data&&(data.messages||data))||[];
-    hist.innerHTML=''; state.msgCount=0;
-    for(const m of msgs){ addMsg(m.role==='user'?'user':'ai', m.content||m.text||'', {model:m.model}); }
+    state.sid=id; const data=await fetch(API+'/threads/'+id,{credentials:'include'}).then(r=>r.ok?r.json():null).catch(()=>null); const msgs=(data&&data.messages)||[];
+    hist.innerHTML=''; state.msgCount=0; state.history=[];
+    for(const m of msgs){ const role=m.role==='user'?'user':'ai'; addMsg(role, m.content||'', {}); state.history.push({role:m.role==='user'?'user':'assistant', content:m.content||''}); }
     $('#ocTopTitle').textContent=(msgs.length?('Chat · '+msgs.length+' msgs'):'Chat'); loadSessions();
   }
-  function newChat(){ state.sid=null; $('#ocTopTitle').textContent='New chat'; showWelcome(); loadSessions(); }
+  function newChat(){ state.sid=null; state.history=[]; $('#ocTopTitle').textContent='New chat'; showWelcome(); loadSessions(); }
 
   // ---------- welcome + suggestions ----------
   function showWelcome(){
@@ -318,37 +322,38 @@
     const dl=foot.querySelector('[data-a="del"]'); if(dl) dl.onclick=()=>{ foot.closest('.oc-msg').remove(); };
   }
 
+  const TOOL_LABELS={web_search:'Searching the web',fetch_url:'Reading a page',search_email:'Reading your email',list_calendar:'Checking your calendar',search_drive:'Searching your files',recall_contact:'Recalling a contact',recall_memory:'Recalling memory',deep_research:'Researching',send_email:'Sending email',create_calendar_event:'Creating event',update_calendar_event:'Updating event',write_file:'Writing a file'};
   async function send(){
     const text=input.value.trim(); if(!text||state.streaming) return;
-    if(!state.model){ notify('Pick a model first','error'); openModelMenu($('#ocModelPick')); return; }
     state.lastUser=text; input.value=''; autosize();
     addMsg('user', text);
-    if(!state.sid){ const body=fd({name:text.slice(0,40),endpoint_url:state.model.endpoint_url,model:state.model.model,endpoint_id:state.model.endpoint_id||''}); try{ const r=await fetch(OUI+'/session',{method:'POST',credentials:'include',body}); if(r.ok){ const j=await r.json(); state.sid=j.id||j.session_id||j.session; } }catch(e){} if(!state.sid){ notify('Could not start a chat session','error'); return; } }
+    const hist0=state.history.slice(-12);          // context BEFORE this turn
+    state.history.push({role:'user', content:text});
+    // Ensure a thread exists so messages persist in MyAi's DB.
+    if(!state.sid){ try{ const r=await fetch(API+'/threads',{method:'POST',credentials:'include',headers:{'Content-Type':'application/json'},body:JSON.stringify({title:text.slice(0,80)})}); if(r.ok){ state.sid=(await r.json()).id; } }catch(e){} }
+    if(state.sid){ fetch(API+'/threads/'+state.sid+'/messages',{method:'POST',credentials:'include',headers:{'Content-Type':'application/json'},body:JSON.stringify({role:'user',content:text})}).catch(()=>{}); }
     state.streaming=true; $('#ocSend').disabled=true;
     const ai=addMsg('ai',''); ai.body.innerHTML='<span class="oc-cursor"></span>';
-    const payload={message:text, session:state.sid, mode:state.mode};
-    if(state.web) payload[state.mode==='agent'?'allow_web_search':'use_web']='true';
-    if(state.bash && state.mode==='agent') payload['allow_bash']='true';
-    let acc='', thinkAcc='', metricsStr='', pending=false;
-    const thinkHtml=()=>thinkAcc?('<details class="oc-think"><summary>💭 Reasoning</summary><div class="oc-think-body">'+esc(thinkAcc)+'</div></details>'):'';
-    const flush=()=>{ pending=false; ai.body.innerHTML=thinkHtml()+renderMD(acc)+'<span class="oc-cursor"></span>'; hist.scrollTop=hist.scrollHeight; };
+    let acc='', pending=false; const steps=[];
+    const stepsHtml=()=>steps.length?('<div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px">'+steps.map(s=>'<span style="display:inline-flex;align-items:center;gap:4px;font-size:11.5px;color:var(--accent);background:var(--accent-softer);border:1px solid var(--accent-soft);border-radius:999px;padding:2px 9px"><span class="material-symbols-rounded" style="font-size:13px">bolt</span>'+esc(s)+'</span>').join('')+'</div>'):'';
+    const flush=()=>{ pending=false; ai.body.innerHTML=stepsHtml()+renderMD(acc)+'<span class="oc-cursor"></span>'; hist.scrollTop=hist.scrollHeight; };
     const schedule=()=>{ if(pending) return; pending=true; requestAnimationFrame(flush); };
     try{
-      const res=await fetch(OUI+'/chat_stream',{method:'POST',credentials:'include',headers:{'X-Tz-Offset':String(-new Date().getTimezoneOffset())},body:fd(payload)});
+      const res=await fetch(API+'/copilot/chat/stream',{method:'POST',credentials:'include',headers:{'Content-Type':'application/json'},body:JSON.stringify({message:text, history:hist0})});
       const rd=res.body.getReader(); const dec=new TextDecoder(); let buf='';
       while(true){ const {done,value}=await rd.read(); if(done) break; buf+=dec.decode(value,{stream:true}); const lines=buf.split('\n'); buf=lines.pop()||'';
         for(const line of lines){ if(!line.startsWith('data:')) continue; const dd=line.slice(5).trim(); if(dd==='[DONE]') continue;
           try{ const j=JSON.parse(dd);
-            if(j.delta){ if(j.thinking){ thinkAcc+=j.delta; } else { acc+=j.delta; } schedule(); }
-            else if(j.type==='tool_start'||j.type==='agent_step'){ const s=document.createElement('div'); s.className='oc-step'; s.innerHTML='<span class="material-symbols-rounded">build</span><div><b>'+esc(j.tool||j.type)+'</b>'+(j.command?'<pre><code>'+esc(j.command)+'</code></pre>':'')+'</div>'; ai.body.insertBefore(s, ai.body.firstChild); }
-            else if(j.type==='metrics'&&j.data){ const m=j.data; metricsStr=(m.output_tokens!=null?(m.output_tokens+' tok'):'')+(m.response_time!=null?(' · '+m.response_time+'s'):'')+(m.context_percent!=null?(' · '+Math.round(m.context_percent)+'%'):''); }
-            else if(j.status && Number(j.status)>=400){ acc+='\n\n**⚠ Error '+j.status+':** '+(j.text||'request failed'); schedule(); }
-            else if(j.error){ acc+='\n\n**⚠ '+(j.error)+'**'; schedule(); }
+            if(j.type==='delta'){ acc+=j.text; schedule(); }
+            else if(j.type==='tool'){ const lbl=TOOL_LABELS[j.name]||j.name; if(!steps.includes(lbl)){ steps.push(lbl); schedule(); } }
+            else if(j.type==='done'){ if(j.answer && !acc.trim()) acc=j.answer; }
           }catch(e){}
         }
       }
-      ai.body.innerHTML=thinkHtml()+(renderMD(acc)||'<span style="color:var(--text-soft)">(no response)</span>'); highlightIn(ai.body);
-      buildFoot(ai.foot,'ai', ()=>acc, metricsStr);
+      ai.body.innerHTML=stepsHtml()+(renderMD(acc)||'<span style="color:var(--text-soft)">(no response)</span>'); highlightIn(ai.body);
+      buildFoot(ai.foot,'ai', ()=>acc, '');
+      state.history.push({role:'assistant', content:acc});
+      if(state.sid && acc.trim()){ fetch(API+'/threads/'+state.sid+'/messages',{method:'POST',credentials:'include',headers:{'Content-Type':'application/json'},body:JSON.stringify({role:'assistant',content:acc})}).catch(()=>{}); }
     }catch(e){ ai.body.innerHTML=renderMD(acc||'')+'<div style="color:var(--red)">Stream error.</div>'; }
     state.streaming=false; $('#ocSend').disabled=false; loadSessions();
   }

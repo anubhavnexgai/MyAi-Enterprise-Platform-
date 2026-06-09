@@ -658,3 +658,100 @@ async def run_agent(
     return (final or content
             or "I gathered some information but ran out of steps before finishing. "
                "Try narrowing the request."), tools_used
+
+
+async def run_agent_stream(
+    message: str,
+    history: List[Dict[str, str]],
+    *,
+    user,
+    autonomy_label: str,
+    autonomy_level: int,
+    today_iso: str,
+    seed_context: str = "",
+):
+    """Streaming variant of run_agent. Async-generates event dicts:
+      {"type":"tool","name":...}   — a tool was invoked
+      {"type":"delta","text":...}  — a chunk of the final answer (token stream)
+      {"type":"done","tools_used":[...],"answer":...}
+    Tool rounds run non-streamed (to decide/execute tools); the final answer is
+    streamed token-by-token. Shares all tool/autonomy logic with run_agent."""
+    llm = get_llm_client()
+    msgs: List[Dict[str, Any]] = [
+        {"role": "system", "content": _system_prompt(
+            user.full_name or user.username or user.email, user.email, today_iso, autonomy_label)},
+    ]
+    if seed_context:
+        msgs.append({"role": "system", "content": seed_context})
+    for m in history[-12:]:
+        if m.get("role") in ("user", "assistant", "system"):
+            msgs.append({"role": m["role"], "content": m["content"]})
+    msgs.append({"role": "user", "content": message})
+
+    harness = Harness()
+    hints = harness.prepare_turn(message)
+    if hints.get("system_injection"):
+        msgs.insert(-1, {"role": "system", "content": hints["system_injection"]})
+
+    tools_used: List[str] = []
+    turn_tools = _tools_for(message)
+    t0 = time.monotonic()
+
+    # --- Tool phase (non-streamed): let the model gather what it needs ---
+    for _round in range(MAX_ROUNDS):
+        if time.monotonic() - t0 > TIME_BUDGET_S:
+            break
+        try:
+            resp = await llm.chat(msgs, tools=turn_tools, temperature=0.4)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("agent(stream) llm call failed: %s", exc)
+            break
+        m = resp.get("message", {}) or {}
+        calls = m.get("tool_calls") or []
+        if not calls:
+            break  # model is ready to answer → stream it below
+        msgs.append({"role": "assistant", "content": (m.get("content") or ""), "tool_calls": calls})
+        for tc in calls:
+            fn = tc.get("function", {}) if isinstance(tc, dict) else {}
+            name = _correct_name(fn.get("name", "")) or fn.get("name", "")
+            args = fn.get("arguments", {})
+            if isinstance(args, str):
+                try:
+                    args = json.loads(args) if args else {}
+                except Exception:
+                    args = {}
+            tools_used.append(name)
+            yield {"type": "tool", "name": name}
+            result = await _dispatch(name, args, user=user, autonomy_level=autonomy_level)
+            result_str = str(result)[:6000]
+            harness.record_tool_result(
+                HToolCall(name=name, args=args if isinstance(args, dict) else {}),
+                result_str, _is_synth_err(result_str))
+            msgs.append({"role": "tool", "content": result_str})
+        if harness.trajectory.should_force_output():
+            break
+
+    # --- Answer phase (streamed) ---
+    if tools_used:
+        msgs.append({"role": "user", "content":
+                     "Now give the user a clear, complete final answer using the "
+                     "information gathered above. Cite any source URLs you used."})
+    full = ""
+    try:
+        async for delta in llm.chat_stream(msgs, temperature=0.4):
+            if delta:
+                full += delta
+                yield {"type": "delta", "text": delta}
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("agent(stream) finalize failed: %s", exc)
+    if not full.strip():
+        full = "I wasn't able to produce an answer. Please try again."
+        yield {"type": "delta", "text": full}
+    yield {"type": "done", "tools_used": tools_used, "answer": full}
+
+
+def _is_synth_err(r: str) -> bool:
+    rl = (r or "").lower()[:90]
+    return any(k in rl for k in (
+        "tool error", "blocked", "could not", "no web results",
+        "not connected", "haven't connected", "unknown tool"))

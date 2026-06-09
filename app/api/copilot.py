@@ -608,6 +608,47 @@ async def orchestrate(
     return res
 
 
+@router.post("/chat/stream")
+async def chat_stream_endpoint(
+    payload: ChatRequest,
+    request: Request,
+    user: PlatformTokenClaims = Depends(get_current_user),
+) -> StreamingResponse:
+    """Token-streaming chat over the NATIVE agent (real connectors + tools).
+
+    Emits SSE events: {"type":"tool","name"}, {"type":"delta","text"},
+    {"type":"done","tools_used","answer"}, then `data: [DONE]`."""
+    if not payload.message.strip():
+        raise HTTPException(status_code=400, detail="message is required")
+    from app.services.agent_loop import run_agent_stream
+
+    today_iso = datetime.now(timezone.utc).strftime("%A, %d %B %Y")
+    autonomy_level = await _autonomy_level_for(user)
+    aut_label = {1: "L1 Observe (read-only)", 2: "L2 Draft Assist", 3: "L3 Augmented",
+                 4: "L4 Guarded Auto", 5: "L5 Autonomous"}.get(autonomy_level, "L1 Observe")
+    history = [
+        {"role": m.role, "content": m.content}
+        for m in (payload.history or []) if m.role in {"user", "assistant", "system"}
+    ]
+    msg = payload.message
+
+    async def gen():
+        try:
+            async for ev in run_agent_stream(
+                msg, history, user=user, autonomy_label=aut_label,
+                autonomy_level=autonomy_level, today_iso=today_iso,
+            ):
+                yield f"data: {json.dumps(ev)}\n\n"
+        except Exception as exc:  # noqa: BLE001
+            logger.exception("chat stream failed")
+            yield f"data: {json.dumps({'type':'delta','text':'(Sorry — '+str(exc)[:120]+')'})}\n\n"
+            yield f"data: {json.dumps({'type':'done','tools_used':[],'answer':''})}\n\n"
+        yield "data: [DONE]\n\n"
+
+    return StreamingResponse(gen(), media_type="text/event-stream",
+                             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+
+
 _CONTACT_RECALL_RE = re.compile(
     r"\b(latest|update|updates|recent|recently|news|status|owe|outstanding|pending|"
     r"who\s+is|what\s+does|what'?s\s+(?:the\s+)?(?:latest|new|up)|anything\s+(?:new|from)|"
