@@ -637,6 +637,7 @@ async def chat_stream_endpoint(
             async for ev in run_agent_stream(
                 msg, history, user=user, autonomy_label=aut_label,
                 autonomy_level=autonomy_level, today_iso=today_iso,
+                model=(payload.model or None),
             ):
                 yield f"data: {json.dumps(ev)}\n\n"
         except Exception as exc:  # noqa: BLE001
@@ -647,6 +648,31 @@ async def chat_stream_endpoint(
 
     return StreamingResponse(gen(), media_type="text/event-stream",
                              headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+
+
+@router.get("/models")
+async def copilot_models(
+    user: PlatformTokenClaims = Depends(get_current_user),
+) -> Dict[str, Any]:
+    """Models the native chat can use. The native client talks to OpenRouter, so
+    we surface the FREE models (ids ending ':free') + the configured default."""
+    import os as _os
+    from app.services.llm_client import get_llm_client
+    llm = get_llm_client()
+    free: List[str] = []
+    try:
+        for m in await llm.list_models():
+            mid = m.get("id") or m.get("name")
+            if mid and str(mid).endswith(":free"):
+                free.append(mid)
+    except Exception:  # noqa: BLE001
+        pass
+    free.sort()
+    defaults = [llm.model] + [x.strip() for x in _os.environ.get("LLM_FALLBACK_MODELS", "").split(",") if x.strip()]
+    ordered = [d for d in defaults if d] + [m for m in free if m not in defaults]
+    seen: set = set()
+    models = [m for m in ordered if not (m in seen or seen.add(m))]
+    return {"default": llm.model, "models": models}
 
 
 _CONTACT_RECALL_RE = re.compile(

@@ -196,42 +196,22 @@
   // ---------- models ----------
   function isChatModel(m){ return !/embed/i.test(String(m)); }
   async function loadModels(){
-    // Native MyAi chat uses one server-side model (OpenRouter); the picker is informational.
-    state.models=[]; state.model={model:'MyAi'}; paintModel(); return;
-    const d=await jget('/models'); const items=(d&&(d.items||d.models))||[]; state.models=items;
-    // Reasoning models (kimi / deepseek-r1 / qwq …) leak their chain-of-thought
-    // into answers, so we never DEFAULT to them (the user can still pick one).
-    const reasoning=/(kimi|deepseek-?r1|[-_/]r1[-_:.]|qwq|reasoning|thinking|magistral)/i;
-    const def=await jget('/default-chat');
-    if(def&&def.endpoint_url&&def.model&&!reasoning.test(def.model)) state.model={endpoint_url:def.endpoint_url,model:def.model,endpoint_id:def.endpoint_id||''};
-    else {
-      // Build all (endpoint, model) pairs from /v1 endpoints, then pick a
-      // reliable NON-REASONING instruct model (prefer instruct, then fast).
-      const preferred=/(gemma|qwen.*instruct|instruct|gpt-oss|mistral|llama)/i;
-      const fast=/(:|[-_ ])(0\.5b|1\.5b|1b|2b|3b|mini|small|phi)/i;
-      const pairs=[];
-      for(const ep of items){ if(!/\/v1/.test(ep.url||ep.endpoint_url||'')) continue; for(const m of (ep.models||[]).filter(isChatModel)) pairs.push({endpoint_url:ep.endpoint_url||ep.url,model:m,endpoint_id:ep.endpoint_id||''}); }
-      if(!pairs.length){ for(const ep of items){ const m=(ep.models||[]).filter(isChatModel)[0]; if(m){ pairs.push({endpoint_url:ep.endpoint_url||ep.url,model:m,endpoint_id:ep.endpoint_id||''}); break; } } }
-      const usable=pairs.filter(p=>!reasoning.test(p.model));
-      const isOR=p=>/openrouter\.ai/i.test(p.endpoint_url||'');
-      const or=usable.filter(isOR);
-      // Prefer an OpenRouter instruct model; fall back through OR-any → instruct → fast → any.
-      state.model = or.find(p=>preferred.test(p.model)) || or[0]
-        || usable.find(p=>preferred.test(p.model)) || usable.find(p=>fast.test(p.model)) || usable[0] || pairs[0] || null;
-    }
+    // Native chat models = OpenRouter free models (the native client's provider).
+    const d=await fetch(API+'/copilot/models',{credentials:'include'}).then(r=>r.ok?r.json():null).catch(()=>null);
+    state.models=(d&&d.models)||[];
+    const def=(d&&d.default)||state.models[0]||'';
+    if(!state.model || !state.model.model || state.model.model==='MyAi') state.model={model:def||'MyAi'};
     paintModel();
   }
-  function paintModel(){ $('#ocModelPickLabel').textContent=state.model?shortModel(state.model.model):'Model'; }
+  function paintModel(){ const m=(state.model&&state.model.model)||'Model'; const s=String(m).split('/').pop().replace(':free',''); $('#ocModelPickLabel').textContent=s.length>22?s.slice(0,21)+'…':s; }
   function openModelMenu(anchor){
-    closeModelMenu(); const menu=document.createElement('div'); menu.className='oc-model-menu'; menu.id='ocModelMenu'; let html=''; const seen=new Set();
-    // /v1 (OpenAI-compatible) endpoints first so each model maps to a working URL.
-    const eps=[...state.models].sort((a,b)=>(/\/v1/.test(b.url||b.endpoint_url||'')?1:0)-(/\/v1/.test(a.url||a.endpoint_url||'')?1:0));
-    for(const ep of eps){ const name=ep.endpoint_name||ep.name||ep.url||'endpoint'; const ms=(ep.models||(ep.model?[ep.model]:[])).filter(isChatModel).filter(m=>{if(seen.has(m))return false;seen.add(m);return true;}); if(!ms.length) continue; html+='<div class="mm-ep">'+esc(name)+'</div>'; for(const m of ms) html+='<div class="mm-row" data-url="'+esc(ep.endpoint_url||ep.url||'')+'" data-id="'+esc(ep.endpoint_id||'')+'" data-model="'+esc(m)+'">'+esc(m)+'</div>'; }
-    if(!seen.size) html+='<div class="mm-ep">No models yet</div>';
-    html+='<div class="mm-row mm-add"><span class="material-symbols-rounded" style="font-size:16px;vertical-align:-3px">add</span> Add a model / provider…</div>';
+    closeModelMenu(); const menu=document.createElement('div'); menu.className='oc-model-menu'; menu.id='ocModelMenu';
+    let html='<div class="mm-ep">Model · OpenRouter (free)</div>';
+    if(!state.models.length) html+='<div class="mm-row" style="color:var(--text-soft)">Loading models…</div>';
+    for(const m of state.models){ const cur=state.model&&state.model.model===m; html+='<div class="mm-row'+(cur?' active':'')+'" data-model="'+esc(m)+'">'+esc(m)+(cur?' ✓':'')+'</div>'; }
     menu.innerHTML=html; document.body.appendChild(menu);
-    const r=anchor.getBoundingClientRect(); menu.style.left=Math.max(8,Math.min(r.left,window.innerWidth-360))+'px'; menu.style.bottom=(window.innerHeight-r.top+8)+'px';
-    menu.querySelectorAll('.mm-row').forEach(row=>row.addEventListener('click',()=>{ if(row.classList.contains('mm-add')){ closeModelMenu(); addModelModal(); return; } state.model={endpoint_url:row.dataset.url,model:row.dataset.model,endpoint_id:row.dataset.id}; paintModel(); closeModelMenu(); }));
+    const r=anchor.getBoundingClientRect(); menu.style.left=Math.max(8,Math.min(r.left,window.innerWidth-380))+'px'; menu.style.bottom=(window.innerHeight-r.top+8)+'px'; menu.style.maxHeight='340px'; menu.style.overflowY='auto';
+    menu.querySelectorAll('.mm-row[data-model]').forEach(row=>row.addEventListener('click',()=>{ state.model={model:row.dataset.model}; paintModel(); closeModelMenu(); }));
     setTimeout(()=>document.addEventListener('mousedown',outside),0);
   }
   function outside(e){ const m=document.getElementById('ocModelMenu'); if(m&&!m.contains(e.target)) closeModelMenu(); }
@@ -339,7 +319,7 @@
     const flush=()=>{ pending=false; ai.body.innerHTML=stepsHtml()+renderMD(acc)+'<span class="oc-cursor"></span>'; hist.scrollTop=hist.scrollHeight; };
     const schedule=()=>{ if(pending) return; pending=true; requestAnimationFrame(flush); };
     try{
-      const res=await fetch(API+'/copilot/chat/stream',{method:'POST',credentials:'include',headers:{'Content-Type':'application/json'},body:JSON.stringify({message:text, history:hist0})});
+      const res=await fetch(API+'/copilot/chat/stream',{method:'POST',credentials:'include',headers:{'Content-Type':'application/json'},body:JSON.stringify({message:text, history:hist0, model:(state.model&&state.model.model!=='MyAi'?state.model.model:null)})});
       const rd=res.body.getReader(); const dec=new TextDecoder(); let buf='';
       while(true){ const {done,value}=await rd.read(); if(done) break; buf+=dec.decode(value,{stream:true}); const lines=buf.split('\n'); buf=lines.pop()||'';
         for(const line of lines){ if(!line.startsWith('data:')) continue; const dd=line.slice(5).trim(); if(dd==='[DONE]') continue;

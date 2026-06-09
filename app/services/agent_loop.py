@@ -669,6 +669,7 @@ async def run_agent_stream(
     autonomy_level: int,
     today_iso: str,
     seed_context: str = "",
+    model: Optional[str] = None,
 ):
     """Streaming variant of run_agent. Async-generates event dicts:
       {"type":"tool","name":...}   — a tool was invoked
@@ -702,7 +703,7 @@ async def run_agent_stream(
         if time.monotonic() - t0 > TIME_BUDGET_S:
             break
         try:
-            resp = await llm.chat(msgs, tools=turn_tools, temperature=0.4)
+            resp = await llm.chat(msgs, tools=turn_tools, temperature=0.4, model=model)
         except Exception as exc:  # noqa: BLE001
             logger.warning("agent(stream) llm call failed: %s", exc)
             break
@@ -738,7 +739,7 @@ async def run_agent_stream(
                      "information gathered above. Cite any source URLs you used."})
     full = ""
     try:
-        async for delta in llm.chat_stream(msgs, temperature=0.4):
+        async for delta in llm.chat_stream(msgs, temperature=0.4, model=model):
             if delta:
                 full += delta
                 yield {"type": "delta", "text": delta}

@@ -93,6 +93,7 @@ class ChatRequest(BaseModel):
     history: List[ChatMessage] = Field(default_factory=list)
     persona: Optional[str] = None
     stream: bool = False
+    model: Optional[str] = None   # optional per-chat model override (OpenRouter id)
 
 
 class SendEmailRequest(BaseModel):
