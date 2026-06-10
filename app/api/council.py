@@ -11,6 +11,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import re
 import uuid
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
@@ -89,7 +90,8 @@ async def _autonomy_level(user: PlatformTokenClaims) -> int:
         return 1
 
 
-async def _save_report(run: _Run, agent: str, title: str, content: str) -> None:
+async def _save_report(run: _Run, agent: str, title: str, content: str,
+                       model: Optional[str] = None) -> None:
     try:
         rdb = get_tenant_router()
         async with rdb.session_for(run.tenant_id) as s:
@@ -97,7 +99,7 @@ async def _save_report(run: _Run, agent: str, title: str, content: str) -> None:
                 tenant_id=run.tenant_id, creator_id=run.user_id,
                 project_id=run.project_id, run_id=run.id, agent=agent,
                 title=(title or agent)[:256], content=content or "",
-                status="awaiting_approval",
+                model=(model or None), status="awaiting_approval",
             ))
             await s.commit()
     except Exception as exc:  # noqa: BLE001
@@ -115,7 +117,8 @@ async def _run_council(run: _Run, user: PlatformTokenClaims, level: int,
             if ev.get("state") == "ready" and ev.get("report"):
                 # Persist each agent's output as a report awaiting approval.
                 asyncio.create_task(
-                    _save_report(run, ev["agent"], ev.get("task", ""), ev["report"])
+                    _save_report(run, ev["agent"], ev.get("task", ""), ev["report"],
+                                 model=ev.get("model"))
                 )
 
     aut_label = _AUT_LABEL.get(level, "L1 Observe")
@@ -330,7 +333,7 @@ async def list_reports(
     return {"reports": [
         {"id": x.id, "agent": x.agent, "title": x.title, "content": x.content,
          "status": x.status, "project_id": x.project_id, "run_id": x.run_id,
-         "created_at": str(x.created_at)} for x in reps
+         "model": getattr(x, "model", None), "created_at": str(x.created_at)} for x in reps
     ]}
 
 
@@ -360,6 +363,87 @@ async def approve_report(rid: int, user: PlatformTokenClaims = Depends(get_curre
 @router.post("/reports/{rid}/reject")
 async def reject_report(rid: int, user: PlatformTokenClaims = Depends(get_current_user)) -> Dict[str, Any]:
     return await _decide(rid, user, "rejected")
+
+
+@router.post("/reports/{rid}/reset")
+async def reset_report(rid: int, user: PlatformTokenClaims = Depends(get_current_user)) -> Dict[str, Any]:
+    """Revert a report to awaiting-approval — backs the 'Undo' on approve/reject."""
+    return await _decide(rid, user, "awaiting_approval")
+
+
+_LANG_EXT = {
+    "python": "py", "py": "py", "javascript": "js", "js": "js", "typescript": "ts",
+    "ts": "ts", "tsx": "tsx", "jsx": "jsx", "html": "html", "css": "css", "json": "json",
+    "bash": "sh", "sh": "sh", "shell": "sh", "sql": "sql", "yaml": "yml", "yml": "yml",
+    "go": "go", "rust": "rs", "rs": "rs", "java": "java", "c": "c", "cpp": "cpp",
+    "markdown": "md", "md": "md", "dockerfile": "Dockerfile",
+}
+
+_FENCE_RE = re.compile(r"```([\w+.-]*)[ \t]*\n(.*?)```", re.DOTALL)
+_FILENAME_HINT_RE = re.compile(
+    r"^\s*(?://|#|<!--)\s*(?:file|filename|path)\s*[:=]\s*([\w./\-]+)", re.IGNORECASE)
+
+
+def _extract_code_files(content: str) -> List[Dict[str, str]]:
+    """Pull fenced code blocks out of a report, deriving a filename for each
+    (an inline `# file: x.py` hint wins, else block_N.<ext-from-lang>)."""
+    out: List[Dict[str, str]] = []
+    for i, (lang, body) in enumerate(_FENCE_RE.findall(content or ""), start=1):
+        body = body.rstrip("\n")
+        if not body.strip():
+            continue
+        first = body.splitlines()[0] if body.splitlines() else ""
+        m = _FILENAME_HINT_RE.match(first)
+        if m:
+            name = m.group(1).strip().lstrip("/\\")
+        else:
+            ext = _LANG_EXT.get((lang or "").lower().strip(), "txt")
+            name = f"block_{i}.{ext}"
+        out.append({"path": name, "content": body, "lang": lang or ""})
+    return out
+
+
+@router.post("/reports/{rid}/apply")
+async def apply_report(rid: int, user: PlatformTokenClaims = Depends(get_current_user)) -> Dict[str, Any]:
+    """Approve a report AND write its code blocks into the project workspace
+    sandbox. This is the user-authorized side-effect: nothing is written until
+    the user explicitly clicks Approve & Apply (the council itself only drafts)."""
+    import pathlib
+    rdb = get_tenant_router()
+    async with rdb.session_for(user.tenant_id) as s:
+        r = await s.execute(
+            select(AgentReport).where(AgentReport.id == rid)
+            .where(AgentReport.tenant_id == user.tenant_id)
+            .where(AgentReport.creator_id == user.sub)
+        )
+        rep = r.scalars().first()
+        if not rep:
+            raise HTTPException(status_code=404, detail="report not found")
+        content = rep.content or ""
+        files = _extract_code_files(content)
+        if not files:
+            raise HTTPException(status_code=400, detail="No code blocks to apply in this report.")
+        base = (pathlib.Path("data/council_workspace") / (user.tenant_id or "t")
+                / (user.sub or "u") / f"report_{rid}").resolve()
+        written: List[str] = []
+        for f in files:
+            rel = f["path"].lstrip("/\\")
+            target = (base / rel).resolve()
+            if not str(target).startswith(str(base)):
+                continue  # path-escape guard
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text(f["content"], encoding="utf-8")
+            written.append(rel)
+        rep.status = "approved"
+        rep.decided_at = datetime.utcnow()
+        await s.commit()
+    await get_audit_service().log(
+        tenant_id=user.tenant_id, user_id=user.sub, event_type="council.apply",
+        message=f"applied report {rid}", payload={"files": written},
+    )
+    workspace = f"data/council_workspace/{user.tenant_id}/{user.sub}/report_{rid}"
+    return {"ok": True, "id": rid, "status": "approved",
+            "files_written": written, "workspace": workspace}
 
 
 @router.delete("/reports/{rid}")

@@ -29,6 +29,22 @@
 
 <div id="rsProgress" class="card card-pad" style="display:none;margin-top:14px"></div>
 
+<!-- Scheduled research watches (recurring auto-research) -->
+<div class="card card-pad" id="rsWatchCard" style="margin-top:14px">
+  <div class="ws-toolbar"><h3 style="margin:0" class="ws-grow"><span class="material-symbols-rounded" style="vertical-align:-5px;color:var(--accent)">schedule</span> Research watches</h3></div>
+  <div class="card-sub" style="margin-bottom:10px">Recurring auto-research — MyAi re-runs the topic on a schedule and saves a fresh report to your library.</div>
+  <div class="ws-row" style="align-items:flex-end;gap:10px;flex-wrap:wrap">
+    <label class="ws-field ws-grow" style="min-width:200px">Topic to watch
+      <input class="ws-input" id="rsWatchTopic" placeholder="e.g. New open-source LLM releases this week">
+    </label>
+    <label class="ws-field" style="max-width:160px">Every
+      <select class="ws-input" id="rsWatchEvery"><option value="6">6 hours</option><option value="12">12 hours</option><option value="24" selected>Daily</option><option value="168">Weekly</option></select>
+    </label>
+    <button class="btn btn-primary" id="rsWatchAdd" style="margin-bottom:2px"><span class="material-symbols-rounded">add</span> Add watch</button>
+  </div>
+  <div id="rsWatchList" class="rs-watch-list" style="margin-top:12px"></div>
+</div>
+
 <div class="ws-toolbar" style="margin-top:18px"><h3 style="margin:0" class="ws-grow">Past research</h3></div>
 <div id="rsLibrary" class="ws-grid"></div>
 
@@ -37,6 +53,11 @@
 .rs-chip{border:1px solid var(--border);background:var(--bg-elev);color:var(--text-muted);border-radius:var(--r-pill);padding:5px 14px;font-size:13px;font-weight:600;cursor:pointer}
 .rs-chip.active{background:var(--accent);color:#fff;border-color:var(--accent)}
 .rs-log{font-size:13px;color:var(--text);display:flex;flex-direction:column;gap:6px;max-height:280px;overflow:auto}
+.rs-watch-list{display:flex;flex-direction:column;gap:8px}
+.rs-watch{display:flex;align-items:center;gap:10px;padding:10px 12px;border:1px solid var(--border);border-radius:var(--r);background:var(--bg-elev)}
+.rs-watch-main{flex:1;min-width:0}
+.rs-watch-topic{font-weight:600;font-size:13px;color:var(--text-strong);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.rs-watch-meta{font-size:11.5px;color:var(--text-muted);margin-top:2px}
 .rs-log .rs-line{display:flex;gap:8px;align-items:flex-start}
 .rs-log .material-symbols-rounded{font-size:16px;color:var(--accent)}
 #rsLibrary{display:grid;grid-template-columns:repeat(auto-fill,minmax(264px,1fr));gap:14px}
@@ -60,7 +81,10 @@
   async function loadModels(){
     const d=await window.oui.get('/models'); const items=(d&&d.items)||[]; const sel=document.getElementById('rsModel'); const seen=new Set(); const list=[];
     const ordered=[...items].sort((a,b)=>(/\/v1/.test(b.url||'')?1:0)-(/\/v1/.test(a.url||'')?1:0));
-    for(const ep of ordered){ for(const m of (ep.models||[])){ if(/embed/i.test(m)||seen.has(m)) continue; seen.add(m); list.push({ep,m}); } }
+    // Exclude non-chat model families (embed/safety/moderation/tts/image/etc.) —
+    // a content-safety or embedding model produces garbage research.
+    const nonChat=/(?:^|[-_/:])(?:embed|embedding|rerank|reranker|safety|moderation|moderat|guard|shield|tts|stt|whisper|audio|speech|voice|image|img|ocr|dall-?e|flux|sdxl|stable-?diffusion|clip|colpali)/i;
+    for(const ep of ordered){ for(const m of (ep.models||[])){ if(nonChat.test(m)||seen.has(m)) continue; seen.add(m); list.push({ep,m}); } }
     sel.innerHTML=list.map(x=>'<option value="'+esc((x.ep.endpoint_id||'')+'|||'+x.m)+'">'+esc(x.m)+'</option>').join('')||'<option value="">No models — add one in Chat</option>';
     // Default to a reliable OpenRouter NON-REASONING instruct model (reasoning
     // models leak thinking / can return empty during synthesis).
@@ -125,13 +149,44 @@
         '<div class="rs-title">'+esc(title)+'</div><div class="rs-meta">'+esc(meta||'Research report')+'</div>'+
         '<div class="rs-acts"><a class="btn btn-sm btn-primary" target="_blank" href="'+OUI+'/research/report/'+id+'"><span class="material-symbols-rounded">description</span>Report</a>'+
         '<button class="btn btn-sm" data-a="discuss"><span class="material-symbols-rounded">chat</span>Discuss</button>'+
+        '<button class="btn btn-sm" data-a="council" title="Start a Council project from this research"><span class="material-symbols-rounded">groups</span>Council</button>'+
         '<button class="btn btn-sm btn-ghost" data-a="del" title="Delete" style="margin-left:auto;color:var(--text-soft)"><span class="material-symbols-rounded">delete</span></button></div>';
       c.querySelector('[data-a="discuss"]').onclick=async()=>{ await window.oui.postJson('/research/spinoff/'+id,{}); location.hash='#/copilot'; };
+      c.querySelector('[data-a="council"]').onclick=()=>{ try{ localStorage.setItem('council_prefill_goal', title); }catch(e){} toast('Sent to Council — review the goal and run','success'); location.hash='#/agents'; };
       c.querySelector('[data-a="del"]').onclick=async()=>{ await window.oui.del('/research/'+id); loadLibrary(); };
       el.appendChild(c);
     }
   }
-  loadModels(); loadLibrary();
+  // ---- Scheduled research watches (native /api/copilot/research/schedule*) ----
+  const SJ=window.safeFetchJson;
+  async function loadWatches(){
+    const d=await SJ('/api/copilot/research/schedules'); const arr=(d&&d.schedules)||[];
+    const el=document.getElementById('rsWatchList');
+    if(!arr.length){ el.innerHTML='<div class="ws-empty" style="padding:10px">No watches yet — add a topic above to auto-research it on a schedule.</div>'; return; }
+    el.innerHTML=arr.map(w=>{
+      const every=w.interval_hours>=168?'weekly':w.interval_hours>=24?'daily':('every '+w.interval_hours+'h');
+      const next=w.next_run?(' · next '+String(w.next_run).slice(0,16).replace('T',' ')):'';
+      return '<div class="rs-watch" data-id="'+w.id+'"><div class="rs-watch-main"><div class="rs-watch-topic">'+esc(w.topic||'')+'</div>'+
+        '<div class="rs-watch-meta">'+esc(every)+esc(next)+'</div></div>'+
+        '<button class="btn btn-sm" data-a="run" title="Run now"><span class="material-symbols-rounded">play_arrow</span></button>'+
+        '<button class="btn btn-sm btn-ghost" data-a="del" title="Remove watch" style="color:var(--text-soft)"><span class="material-symbols-rounded">delete</span></button></div>';
+    }).join('');
+    el.querySelectorAll('.rs-watch').forEach(row=>{
+      const id=row.dataset.id;
+      row.querySelector('[data-a="run"]').onclick=async()=>{ await SJ('/api/copilot/research/schedule/'+id+'/run',{method:'POST'}); toast('Running now — report will appear in your library','info'); };
+      row.querySelector('[data-a="del"]').onclick=async()=>{ await SJ('/api/copilot/research/schedule/'+id,{method:'DELETE'}); toast('Watch removed','info'); loadWatches(); };
+    });
+  }
+  document.getElementById('rsWatchAdd').onclick=async()=>{
+    const topic=document.getElementById('rsWatchTopic').value.trim();
+    if(!topic){ toast('Enter a topic to watch','error'); return; }
+    const hrs=document.getElementById('rsWatchEvery').value;
+    const d=await SJ('/api/copilot/research/schedule?interval_hours='+hrs,{method:'POST',body:{message:topic}});
+    if(d&&d.id){ toast('Watch added','success'); document.getElementById('rsWatchTopic').value=''; loadWatches(); }
+    else toast('Could not add watch','error');
+  };
+
+  loadModels(); loadLibrary(); loadWatches();
   // Resume an in-progress research run after a refresh / in another tab.
   try{ const active=localStorage.getItem('rs_active'); if(active) streamResearch(active, true); }catch(e){}
 })();

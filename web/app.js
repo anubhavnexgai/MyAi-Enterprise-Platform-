@@ -22,6 +22,8 @@ const ROUTES = {
   cookbook: "pages/cookbook.html",
   research: "pages/research.html",
   agents: "pages/agents.html",
+  compare: "pages/compare.html",
+  gallery: "pages/gallery.html",
 };
 
 // Shared helper for the Odysseus-backed workspace pages: thin wrappers around
@@ -131,7 +133,7 @@ async function safeFetchJson(url, options = {}) {
 /* ---------- Router ---------- */
 // Bump this to force every page fragment to refetch (defeats SW + HTTP cache,
 // which otherwise serve stale pages/*.html even when the server has new ones).
-const ASSET_BUILD = "20260610a";
+const ASSET_BUILD = "20260611a";
 async function loadFragment(route) {
   const path = ROUTES[route] || ROUTES.dashboard;
   try {
@@ -188,8 +190,79 @@ function currentRoute() {
   return h || "dashboard";
 }
 
+/* ---------- Command palette (⌘K / Ctrl+K) ---------- */
+const PALETTE_ITEMS = [
+  { icon: "dashboard", label: "Dashboard", hint: "Overview", run: () => (location.hash = "#/dashboard") },
+  { icon: "smart_toy", label: "Copilot", hint: "Chat", run: () => (location.hash = "#/copilot") },
+  { icon: "groups", label: "Agents Council", hint: "Multi-agent", run: () => (location.hash = "#/agents") },
+  { icon: "travel_explore", label: "Deep Research", hint: "Research", run: () => (location.hash = "#/research") },
+  { icon: "mail", label: "Email", run: () => (location.hash = "#/email") },
+  { icon: "calendar_month", label: "Calendar", run: () => (location.hash = "#/calendar") },
+  { icon: "sticky_note_2", label: "Notes", run: () => (window.openNotesDrawer ? window.openNotesDrawer() : (location.hash = "#/notes")) },
+  { icon: "checklist", label: "Tasks & Routines", run: () => (location.hash = "#/tasks") },
+  { icon: "restaurant", label: "Cookbook", run: () => (location.hash = "#/cookbook") },
+  { icon: "compare_arrows", label: "Compare models", run: () => (location.hash = "#/compare") },
+  { icon: "photo_library", label: "Gallery", run: () => (location.hash = "#/gallery") },
+  { icon: "monitoring", label: "Logs", run: () => (location.hash = "#/logs") },
+  { icon: "hub", label: "Connectors", run: () => (location.hash = "#/connectors") },
+  { icon: "settings", label: "Settings", run: () => (location.hash = "#/settings") },
+  { icon: "add_comment", label: "New chat", hint: "Action", run: () => { location.hash = "#/copilot"; setTimeout(() => document.getElementById("ocNewChat")?.click(), 250); } },
+  { icon: "edit", label: "Compose email", hint: "Action", run: () => (window.openComposeEmail ? window.openComposeEmail() : (location.hash = "#/email")) },
+  { icon: "description", label: "New document", hint: "Action", run: () => window.openDocsDrawer && window.openDocsDrawer() },
+];
+
+function openCommandPalette() {
+  if (document.getElementById("cmdkBackdrop")) return;
+  const bd = document.createElement("div");
+  bd.id = "cmdkBackdrop";
+  bd.className = "cmdk-backdrop";
+  bd.innerHTML =
+    '<div class="cmdk" role="dialog" aria-label="Command palette">' +
+    '<div class="cmdk-input"><span class="material-symbols-rounded">search</span>' +
+    '<input id="cmdkq" placeholder="Search pages and actions…" autocomplete="off" /></div>' +
+    '<div class="cmdk-list" id="cmdkList"></div>' +
+    '<div class="cmdk-foot"><span><b>↑↓</b> navigate</span><span><b>↵</b> open</span><span><b>esc</b> close</span></div></div>';
+  document.body.appendChild(bd);
+  const q = bd.querySelector("#cmdkq"), list = bd.querySelector("#cmdkList");
+  let filtered = PALETTE_ITEMS.slice(), sel = 0;
+  const render = () => {
+    list.innerHTML = filtered.map((it, i) =>
+      '<div class="cmdk-row' + (i === sel ? " sel" : "") + '" data-i="' + i + '">' +
+      '<span class="material-symbols-rounded">' + it.icon + "</span>" +
+      '<span class="cmdk-label">' + escapeHtml(it.label) + "</span>" +
+      (it.hint ? '<span class="cmdk-hint">' + escapeHtml(it.hint) + "</span>" : "") +
+      "</div>").join("") || '<div class="cmdk-empty">No matches</div>';
+    const cur = list.querySelector(".cmdk-row.sel");
+    if (cur) cur.scrollIntoView({ block: "nearest" });
+  };
+  const close = () => { bd.remove(); document.removeEventListener("keydown", onKey, true); };
+  const choose = (i) => { const it = filtered[i]; close(); if (it) try { it.run(); } catch (e) {} };
+  const onKey = (e) => {
+    if (e.key === "Escape") { e.preventDefault(); close(); }
+    else if (e.key === "ArrowDown") { e.preventDefault(); sel = Math.min(sel + 1, filtered.length - 1); render(); }
+    else if (e.key === "ArrowUp") { e.preventDefault(); sel = Math.max(sel - 1, 0); render(); }
+    else if (e.key === "Enter") { e.preventDefault(); choose(sel); }
+  };
+  q.addEventListener("input", () => {
+    const s = q.value.toLowerCase().trim();
+    filtered = s ? PALETTE_ITEMS.filter(it => (it.label + " " + (it.hint || "")).toLowerCase().includes(s)) : PALETTE_ITEMS.slice();
+    sel = 0; render();
+  });
+  list.addEventListener("click", e => { const r = e.target.closest(".cmdk-row"); if (r) choose(+r.dataset.i); });
+  bd.addEventListener("mousedown", e => { if (e.target === bd) close(); });
+  document.addEventListener("keydown", onKey, true);
+  render(); q.focus();
+}
+
 window.addEventListener("hashchange", () => go(currentRoute()));
 window.addEventListener("DOMContentLoaded", async () => {
+  // ⌘K / Ctrl+K opens the command palette from anywhere.
+  document.addEventListener("keydown", (e) => {
+    if ((e.metaKey || e.ctrlKey) && (e.key === "k" || e.key === "K")) {
+      e.preventDefault();
+      if (!document.body.classList.contains("login-active")) openCommandPalette();
+    }
+  });
   // Auth gate: if not signed in, show the login screen and stop booting the app.
   const _me0 = await safeFetchJson("/api/auth/me");
   if (!_me0) { await showLoginScreen(); return; }

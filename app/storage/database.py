@@ -59,6 +59,9 @@ async def init_database() -> None:
                 ("escalated_at",     "DATETIME"),
                 ("escalation_count", "INTEGER DEFAULT 0"),
             ],
+            "agent_reports": [
+                ("model", "VARCHAR(128)"),
+            ],
         }
         for table, cols in migrations.items():
             existing = await conn.execute(text(f"PRAGMA table_info({table})"))

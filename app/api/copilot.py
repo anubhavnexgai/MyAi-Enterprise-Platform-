@@ -659,13 +659,14 @@ async def copilot_models(
     """Models the native chat can use. The native client talks to OpenRouter, so
     we surface the FREE models (ids ending ':free') + the configured default."""
     import os as _os
-    from app.services.llm_client import get_llm_client
+    from app.services.llm_client import get_llm_client, is_chat_capable_model
     llm = get_llm_client()
     free: List[str] = []
     try:
         for m in await llm.list_models():
             mid = m.get("id") or m.get("name")
-            if mid and str(mid).endswith(":free"):
+            # FREE chat-capable models only — exclude embed/safety/tts/image etc.
+            if mid and str(mid).endswith(":free") and is_chat_capable_model(mid):
                 free.append(mid)
     except Exception:  # noqa: BLE001
         pass

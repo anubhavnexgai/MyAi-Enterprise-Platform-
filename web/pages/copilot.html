@@ -150,6 +150,19 @@
 .oc-modeswitch button.active{background:var(--accent);color:#fff}
 .oc-send{width:36px;height:36px;border:0;border-radius:50%;background:var(--accent);color:#fff;display:flex;align-items:center;justify-content:center;cursor:pointer}
 .oc-send:hover{background:var(--accent-hover)}.oc-send:disabled{opacity:.5;cursor:not-allowed}
+.oc-sources{margin-top:10px;border-top:1px solid var(--border);padding-top:8px}
+.oc-src-toggle{display:inline-flex;align-items:center;gap:5px;border:0;background:transparent;color:var(--text-muted);font-size:12px;font-weight:600;cursor:pointer;padding:3px 4px;border-radius:var(--r-sm)}
+.oc-src-toggle:hover{color:var(--accent)}
+.oc-src-toggle .material-symbols-rounded{font-size:15px}
+.oc-src-list{display:flex;flex-direction:column;gap:4px;margin-top:6px}
+.oc-src-item{display:flex;align-items:center;gap:8px;padding:6px 9px;border:1px solid var(--border);border-radius:var(--r);text-decoration:none;font-size:12px;background:var(--bg)}
+.oc-src-item:hover{border-color:var(--accent);background:var(--accent-softer)}
+.oc-src-n{flex:0 0 auto;width:18px;height:18px;border-radius:50%;background:var(--accent-soft);color:var(--accent);display:grid;place-items:center;font-size:10px;font-weight:700}
+.oc-src-host{font-weight:600;color:var(--text-strong);white-space:nowrap}
+.oc-src-url{color:var(--text-soft);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.oc-send.streaming{background:var(--red,#EF4444)}.oc-send.streaming:hover{background:#DC2626}
+.oc-send.streaming .material-symbols-rounded{animation:ocPulseStop 1.1s ease-in-out infinite}
+@keyframes ocPulseStop{0%,100%{opacity:1}50%{opacity:.55}}
 .oc-overflow-menu{position:absolute;bottom:74px;left:32px;background:var(--bg-elev);border:1px solid var(--border);border-radius:var(--r);box-shadow:var(--shadow-lg);padding:6px;z-index:30;min-width:200px}
 .oc-overflow-menu button{display:flex;align-items:center;gap:8px;width:100%;border:0;background:transparent;color:var(--text);padding:8px 10px;border-radius:var(--r-sm);cursor:pointer;font-size:13px}
 .oc-overflow-menu button:hover{background:var(--bg-hover)}
@@ -168,7 +181,7 @@
   const root=document.getElementById('ody-chat-root'); if(!root || root.dataset.bound==='1') return; root.dataset.bound='1';
   const OUI='/api/oui'; const $=s=>root.querySelector(s);
   const hist=$('#ocHistory'), input=$('#ocInput');
-  const state={sid:null, model:null, mode:'agent', web:false, models:[], streaming:false, lastUser:'', msgCount:0, history:[]};
+  const state={sid:null, model:null, mode:'agent', web:false, models:[], streaming:false, abort:null, lastUser:'', msgCount:0, history:[]};
   const API='/api';  // native MyAi backend (real connectors + reliable thread persistence)
   const esc=s=>(window.escapeHtml?window.escapeHtml(s):String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])));
   const notify=(m,t)=>(window.toast?window.toast(m,t||'info'):console.log(m));
@@ -215,14 +228,6 @@
   }
   function outside(e){ const m=document.getElementById('ocModelMenu'); if(m&&!m.contains(e.target)) closeModelMenu(); }
   function closeModelMenu(){ const m=document.getElementById('ocModelMenu'); if(m) m.remove(); document.removeEventListener('mousedown',outside); }
-  function addModelModal(){
-    window.openModal('<div class="modal-head"><h3>Add a model / provider</h3><button class="icon-btn" data-close><span class="material-symbols-rounded">close</span></button></div>'+
-      '<div class="modal-body"><p style="color:var(--text-muted);font-size:13px;margin-top:0">Any OpenAI-compatible or Ollama endpoint (vLLM, llama.cpp, Ollama, OpenRouter, OpenAI…). For local Ollama use <code>http://localhost:11434/v1</code>.</p>'+
-      '<label class="oc-fld">Name<input id="amName" placeholder="My Ollama"></label><label class="oc-fld">Base URL<input id="amUrl" placeholder="http://localhost:11434/v1"></label><label class="oc-fld">API key (optional)<input id="amKey" type="password"></label></div>'+
-      '<div class="modal-foot"><button class="btn" data-close>Cancel</button><button class="btn btn-primary" id="amSave">Add</button></div>');
-    document.getElementById('amSave').onclick=async()=>{ const base=document.getElementById('amUrl').value.trim(); if(!base){notify('Base URL required','error');return;} const body=fd({name:document.getElementById('amName').value.trim(),base_url:base,api_key:document.getElementById('amKey').value.trim(),skip_probe:'false',shared:'false'}); const r=await fetch(OUI+'/model-endpoints',{method:'POST',credentials:'include',body}); if(r.ok){ window.closeModal(); notify('Model added','success'); loadModels(); } else notify('Add failed: '+r.status,'error'); };
-  }
-
   // ---------- helpers ----------
   async function jget(p){ try{ const r=await fetch(OUI+p,{credentials:'include'}); if(!r.ok) return null; return await r.json(); }catch(e){ return null; } }
   function fd(o){ const f=new FormData(); for(const k in o){ if(o[k]!=null) f.append(k,o[k]); } return f; }
@@ -311,14 +316,15 @@
     // Ensure a thread exists so messages persist in MyAi's DB.
     if(!state.sid){ try{ const r=await fetch(API+'/threads',{method:'POST',credentials:'include',headers:{'Content-Type':'application/json'},body:JSON.stringify({title:text.slice(0,80)})}); if(r.ok){ state.sid=(await r.json()).id; } }catch(e){} }
     if(state.sid){ fetch(API+'/threads/'+state.sid+'/messages',{method:'POST',credentials:'include',headers:{'Content-Type':'application/json'},body:JSON.stringify({role:'user',content:text})}).catch(()=>{}); }
-    state.streaming=true; $('#ocSend').disabled=true;
+    state.streaming=true; setSendStop(true);
+    state.abort=new AbortController();
     const ai=addMsg('ai',''); ai.body.innerHTML='<span class="oc-cursor"></span>';
-    let acc='', pending=false; const steps=[];
+    let acc='', pending=false, stopped=false; const steps=[];
     const stepsHtml=()=>steps.length?('<div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px">'+steps.map(s=>'<span style="display:inline-flex;align-items:center;gap:4px;font-size:11.5px;color:var(--accent);background:var(--accent-softer);border:1px solid var(--accent-soft);border-radius:999px;padding:2px 9px"><span class="material-symbols-rounded" style="font-size:13px">bolt</span>'+esc(s)+'</span>').join('')+'</div>'):'';
     const flush=()=>{ pending=false; ai.body.innerHTML=stepsHtml()+renderMD(acc)+'<span class="oc-cursor"></span>'; hist.scrollTop=hist.scrollHeight; };
     const schedule=()=>{ if(pending) return; pending=true; requestAnimationFrame(flush); };
     try{
-      const res=await fetch(API+'/copilot/chat/stream',{method:'POST',credentials:'include',headers:{'Content-Type':'application/json'},body:JSON.stringify({message:text, history:hist0, model:(state.model&&state.model.model!=='MyAi'?state.model.model:null), mode:state.mode, web:state.web})});
+      const res=await fetch(API+'/copilot/chat/stream',{method:'POST',credentials:'include',signal:state.abort.signal,headers:{'Content-Type':'application/json'},body:JSON.stringify({message:text, history:hist0, model:(state.model&&state.model.model!=='MyAi'?state.model.model:null), mode:state.mode, web:state.web})});
       if(state.web){ state.web=false; $('#ocWeb').classList.remove('on'); }   // one-shot per message
       const rd=res.body.getReader(); const dec=new TextDecoder(); let buf='';
       while(true){ const {done,value}=await rd.read(); if(done) break; buf+=dec.decode(value,{stream:true}); const lines=buf.split('\n'); buf=lines.pop()||'';
@@ -330,12 +336,39 @@
           }catch(e){}
         }
       }
-      ai.body.innerHTML=stepsHtml()+(renderMD(acc)||'<span style="color:var(--text-soft)">(no response)</span>'); highlightIn(ai.body);
+      const tail=stopped?'<div style="color:var(--text-soft);font-size:12px;margin-top:6px">⏹ Stopped</div>':'';
+      ai.body.innerHTML=stepsHtml()+(renderMD(acc)||'<span style="color:var(--text-soft)">(no response)</span>')+tail; highlightIn(ai.body);
+      addSources(ai.body, acc);
       buildFoot(ai.foot,'ai', ()=>acc, '');
-      state.history.push({role:'assistant', content:acc});
+      if(acc.trim()) state.history.push({role:'assistant', content:acc});
       if(state.sid && acc.trim()){ fetch(API+'/threads/'+state.sid+'/messages',{method:'POST',credentials:'include',headers:{'Content-Type':'application/json'},body:JSON.stringify({role:'assistant',content:acc})}).catch(()=>{}); }
-    }catch(e){ ai.body.innerHTML=renderMD(acc||'')+'<div style="color:var(--red)">Stream error.</div>'; }
-    state.streaming=false; $('#ocSend').disabled=false; loadSessions();
+    }catch(e){
+      if(e&&e.name==='AbortError'){ stopped=true; ai.body.innerHTML=stepsHtml()+renderMD(acc||'')+'<div style="color:var(--text-soft);font-size:12px;margin-top:6px">⏹ Stopped</div>'; if(acc.trim()){ buildFoot(ai.foot,'ai',()=>acc,''); state.history.push({role:'assistant',content:acc}); } }
+      else ai.body.innerHTML=renderMD(acc||'')+'<div style="color:var(--red)">Stream error.</div>';
+    }
+    state.streaming=false; state.abort=null; setSendStop(false); loadSessions();
+  }
+
+  // Toggle the send button between "send" and "stop generating".
+  function setSendStop(streaming){
+    const b=$('#ocSend'); if(!b) return;
+    b.classList.toggle('streaming',streaming);
+    b.title=streaming?'Stop generating':'Send';
+    b.querySelector('.material-symbols-rounded').textContent=streaming?'stop':'arrow_upward';
+  }
+  function stopGen(){ if(state.abort){ try{ state.abort.abort(); }catch(e){} } }
+
+  // Pull source URLs out of an answer and render a collapsible "Sources" footer.
+  function addSources(bodyEl, text){
+    const urls=[...new Set((String(text||'').match(/https?:\/\/[^\s<>()\[\]"'`]+/g)||[]).map(u=>u.replace(/[.,;:)\]]+$/,'')))];
+    if(urls.length<1) return;
+    const host=u=>{ try{ return new URL(u).hostname.replace(/^www\./,''); }catch(e){ return u; } };
+    const wrap=document.createElement('div'); wrap.className='oc-sources';
+    wrap.innerHTML='<button class="oc-src-toggle"><span class="material-symbols-rounded">link</span>Sources ('+urls.length+')<span class="material-symbols-rounded oc-src-chev">expand_more</span></button>'+
+      '<div class="oc-src-list" hidden>'+urls.map((u,i)=>'<a href="'+esc(u)+'" target="_blank" rel="noopener" class="oc-src-item"><span class="oc-src-n">'+(i+1)+'</span><span class="oc-src-host">'+esc(host(u))+'</span><span class="oc-src-url">'+esc(u.length>64?u.slice(0,63)+'…':u)+'</span></a>').join('')+'</div>';
+    const tg=wrap.querySelector('.oc-src-toggle'), ls=wrap.querySelector('.oc-src-list');
+    tg.onclick=()=>{ ls.hidden=!ls.hidden; wrap.querySelector('.oc-src-chev').textContent=ls.hidden?'expand_more':'expand_less'; };
+    bodyEl.appendChild(wrap);
   }
 
   // ---------- mode / toggles / input ----------
@@ -365,7 +398,7 @@
 
   // ---------- wire ----------
   $('#ocNewChat').addEventListener('click', newChat);
-  $('#ocSend').addEventListener('click', send);
+  $('#ocSend').addEventListener('click', ()=>{ if(state.streaming) stopGen(); else send(); });
   input.addEventListener('keydown', e=>{ if(e.key==='Enter'&&!e.shiftKey){ e.preventDefault(); send(); } });
   input.addEventListener('input', autosize);
   $('#ocModeAgent').addEventListener('click',()=>setMode('agent'));

@@ -22,6 +22,33 @@ from app.config import settings
 
 logger = logging.getLogger(__name__)
 
+import re as _re
+
+# Model families that are NOT general chat/instruct generators — picking one of
+# these for chat/research/council produces garbage (a safety classifier scores
+# text, an embedder returns vectors, a TTS model speaks). Centralised here so
+# every surface (chat, research, council) draws from one vetted allow-list.
+_NON_CHAT_MODEL_RE = _re.compile(
+    r"(?:^|[-_/:])(?:"
+    r"embed|embedding|rerank|reranker|"
+    r"safety|moderation|moderat|guard|shield|"
+    r"tts|stt|whisper|audio|speech|voice|"
+    r"image|img|vision-?ocr|ocr|dall-?e|flux|sdxl|stable-?diffusion|"
+    r"clip|colpali"
+    r")",
+    _re.I,
+)
+
+
+def is_chat_capable_model(model_id: str) -> bool:
+    """True if a model id looks like a general chat/instruct generator (i.e. NOT
+    an embedder/safety-classifier/TTS/image model). Conservative — unknown
+    families are allowed (default-open), only clearly-non-chat ones are filtered."""
+    mid = str(model_id or "")
+    if not mid:
+        return False
+    return not _NON_CHAT_MODEL_RE.search(mid)
+
 
 class LLMClient:
     """Provider-agnostic chat client. Same interface for both backends."""

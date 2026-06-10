@@ -111,6 +111,8 @@ class AgentReport(Base):
     agent: Mapped[str] = mapped_column(String(32), nullable=False)  # research|business|…|council
     title: Mapped[str] = mapped_column(String(256), default="")
     content: Mapped[str] = mapped_column(Text, default="")
+    # The model that actually produced this report (council "model used" badge).
+    model: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
     # draft|awaiting_approval|approved|rejected
     status: Mapped[str] = mapped_column(String(20), default="awaiting_approval", index=True)
 

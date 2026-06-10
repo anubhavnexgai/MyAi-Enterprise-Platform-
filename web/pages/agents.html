@@ -119,6 +119,12 @@
 .ao-rep .ao-rep-title{font-weight:600;font-size:13px;color:var(--text-strong);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .ao-rep .ao-rep-sub{font-size:11.5px;color:var(--text-muted);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .ao-rep .pill{flex:0 0 auto}
+.ao-rep-model{display:inline-flex;align-items:center;gap:3px;color:var(--accent)}
+.ao-rep-model .material-symbols-rounded{font-size:12px}
+.ao-undo{display:flex;align-items:center;gap:14px;background:var(--text-strong,#1f2937);color:#fff;padding:11px 14px 11px 16px;border-radius:var(--r,10px);box-shadow:0 8px 28px rgba(0,0,0,.22);font-size:13px;opacity:0;transform:translateY(8px);transition:opacity .2s,transform .2s}
+.ao-undo.in{opacity:1;transform:none}
+.ao-undo-btn{background:transparent;border:0;color:var(--accent-softer,#a5f3fc);font-weight:700;cursor:pointer;font-size:13px;padding:2px 4px}
+.ao-undo-btn:hover{text-decoration:underline}
 .ao-log{font-size:13px;color:var(--text);display:flex;flex-direction:column;gap:6px;max-height:240px;overflow:auto}
 .ao-log .ao-line{display:flex;gap:8px;align-items:flex-start}
 .ao-log .material-symbols-rounded{font-size:16px;color:var(--accent)}
@@ -201,10 +207,11 @@
     const when=(r.created_at||'').slice(0,16).replace('T',' ');
     const friendly = r.agent==='council' ? 'Council' : ((agentMap[r.agent]&&agentMap[r.agent].title)||r.agent);
     const primary = r.agent==='council' ? (r.title||'Action plan — what we could do together') : friendly;
-    const sub = r.agent==='council' ? when : ((r.title||'')+' · '+when);
+    const mb = r.model ? ' · <span class="ao-rep-model"><span class="material-symbols-rounded">memory</span>'+esc(shortModel(r.model))+'</span>' : '';
+    const sub = esc(r.agent==='council' ? when : ((r.title||'')+' · '+when))+mb;
     return '<div class="ao-rep" data-id="'+r.id+'"><div class="ao-rep-main">'+
       '<div class="ao-rep-title">'+esc(primary)+'</div>'+
-      '<div class="ao-rep-sub">'+esc(sub)+'</div></div>'+
+      '<div class="ao-rep-sub">'+sub+'</div></div>'+
       '<span class="pill '+(r.status==='approved'?'pill-green':r.status==='rejected'?'pill-red':'pill-orange')+'">'+esc(r.status.replace('_',' '))+'</span></div>';
   }
 
@@ -222,24 +229,47 @@
 
   function openReport(r){
     if(!r) return;
+    const hasCode=/```/.test(r.content||'');
+    const apply = (r.status==='awaiting_approval' && hasCode)
+      ? '<button class="btn btn-primary" data-act="apply" title="Approve and write the code blocks into the project workspace"><span class="material-symbols-rounded">bolt</span> Approve &amp; apply</button>' : '';
     const acts = (r.status==='awaiting_approval'
-      ? '<button class="btn btn-primary" data-act="approve"><span class="material-symbols-rounded">check</span> Approve</button>'+
+      ? apply+'<button class="btn'+(hasCode?'':' btn-primary')+'" data-act="approve"><span class="material-symbols-rounded">check</span> Approve</button>'+
         '<button class="btn btn-danger" data-act="reject"><span class="material-symbols-rounded">close</span> Reject</button>'
       : '')+
       '<button class="btn" data-act="delete"><span class="material-symbols-rounded">delete</span> Delete</button>';
+    const modelLine = r.model ? ' · <span class="ao-rep-model"><span class="material-symbols-rounded">memory</span>'+esc(shortModel(r.model))+'</span>' : '';
     window.openModal('<div class="modal-head"><h3>'+esc(r.title||r.agent)+'</h3><button class="icon-btn" data-close><span class="material-symbols-rounded">close</span></button></div>'+
-      '<div class="modal-body"><div class="card-sub" style="margin-bottom:10px">'+esc(r.agent)+' · '+esc(r.status.replace("_"," "))+'</div>'+
+      '<div class="modal-body"><div class="card-sub" style="margin-bottom:10px">'+esc(r.agent)+' · '+esc(r.status.replace("_"," "))+modelLine+'</div>'+
       '<div style="font-size:14px;line-height:1.6">'+md(r.content||'')+'</div></div>'+
-      '<div class="modal-foot" style="display:flex;gap:8px;justify-content:flex-end;padding:12px 16px;border-top:1px solid var(--border)">'+acts+'</div>');
+      '<div class="modal-foot" style="display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap;padding:12px 16px;border-top:1px solid var(--border)">'+acts+'</div>');
+    document.querySelector('[data-act="apply"]')?.addEventListener('click',()=>applyReport(r.id));
     document.querySelector('[data-act="approve"]')?.addEventListener('click',()=>decide(r.id,'approve'));
     document.querySelector('[data-act="reject"]')?.addEventListener('click',()=>decide(r.id,'reject'));
     document.querySelector('[data-act="delete"]')?.addEventListener('click',()=>delReport(r.id));
   }
 
+  async function applyReport(id){
+    const d=await SJ('/api/council/reports/'+id+'/apply',{method:'POST'});
+    if(d&&d.ok){ toast('Applied — wrote '+(d.files_written||[]).length+' file(s) to the workspace','success'); window.closeModal&&window.closeModal(); loadReports(); loadAgents(); }
+    else toast((d&&d.detail)||'Could not apply report','error');
+  }
+
   async function decide(id,act){
     const d=await SJ('/api/council/reports/'+id+'/'+act,{method:'POST'});
-    if(d&&d.ok){ toast('Report '+act+'d','success'); window.closeModal&&window.closeModal(); loadReports(); loadAgents(); }
+    if(d&&d.ok){ window.closeModal&&window.closeModal(); loadReports(); loadAgents();
+      undoToast('Report '+act+'d', async()=>{ const u=await SJ('/api/council/reports/'+id+'/reset',{method:'POST'}); if(u&&u.ok){ toast('Undone','info'); loadReports(); loadAgents(); } }); }
     else toast('Could not '+act+' report','error');
+  }
+
+  // A toast with a 6-second Undo action.
+  function undoToast(msg, onUndo){
+    const host=document.getElementById('aoUndoHost')||(()=>{ const h=document.createElement('div'); h.id='aoUndoHost'; h.style.cssText='position:fixed;right:20px;bottom:20px;z-index:9999;display:flex;flex-direction:column;gap:8px'; document.body.appendChild(h); return h; })();
+    const el=document.createElement('div'); el.className='ao-undo';
+    el.innerHTML='<span>'+esc(msg)+'</span><button class="ao-undo-btn">Undo</button>';
+    host.appendChild(el); requestAnimationFrame(()=>el.classList.add('in'));
+    let done=false; const close=()=>{ if(done)return; done=true; el.classList.remove('in'); setTimeout(()=>el.remove(),200); };
+    el.querySelector('.ao-undo-btn').onclick=()=>{ close(); try{ onUndo&&onUndo(); }catch(e){} };
+    setTimeout(close, 6000);
   }
 
   async function delReport(id){
@@ -343,6 +373,8 @@
   };
 
   loadAgents(); loadReports(); loadProjects(); loadModels();
+  // Handoff from Deep Research: prefill the goal if a research report was sent here.
+  try{ const pre=localStorage.getItem('council_prefill_goal'); if(pre){ localStorage.removeItem('council_prefill_goal'); const g=document.getElementById('aoGoal'); g.value=pre; g.focus(); toast('Goal loaded from research — review, then Run Council','info'); } }catch(e){}
   // Resume an in-progress council run after a refresh / in another tab.
   try{ const active=localStorage.getItem('council_active'); if(active) streamRun(active,true); }catch(e){}
 })();

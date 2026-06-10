@@ -201,12 +201,15 @@ async def run_orchestrator(
             except Exception:  # noqa: BLE001
                 pass
 
+    def _model_for(sp) -> Optional[str]:
+        return (models or {}).get(sp.name) or sp.model
+
     def _run_specialist(task: str, sp, seed: str):
         return run_agent(
             task, history, user=user, autonomy_label=autonomy_label,
             autonomy_level=autonomy_level, today_iso=today_iso,
             seed_context=seed, extra_system=sp.specialization, allowed_tools=sp.tools,
-            model=(models or {}).get(sp.name) or sp.model,
+            model=_model_for(sp),
         )
 
     _emit("Planning…")
@@ -233,9 +236,9 @@ async def run_orchestrator(
     if len(steps) == 1:
         sp = get_specialist(steps[0]["agent"])
         _emit(f"{sp.title} working…")
-        _event({"type": "state", "agent": sp.name, "state": "working", "task": steps[0]["task"]})
+        _event({"type": "state", "agent": sp.name, "state": "working", "task": steps[0]["task"], "model": _model_for(sp)})
         answer, tools = await _run_specialist(steps[0]["task"], sp, seed_context)
-        _event({"type": "state", "agent": sp.name, "state": "ready", "task": steps[0]["task"], "report": answer})
+        _event({"type": "state", "agent": sp.name, "state": "ready", "task": steps[0]["task"], "report": answer, "model": _model_for(sp)})
         return {
             "answer": answer, "plan": steps, "agents_used": [sp.name],
             "steps": [{"agent": sp.name, "task": steps[0]["task"], "result": answer}],
@@ -260,7 +263,7 @@ async def run_orchestrator(
         seed = "\n\n".join(x for x in (seed_context, dep_ctx) if x)
         async with sem:
             _emit(f"{sp.title}: {steps[i]['task'][:60]}")
-            _event({"type": "state", "agent": sp.name, "state": "working", "task": steps[i]["task"]})
+            _event({"type": "state", "agent": sp.name, "state": "working", "task": steps[i]["task"], "model": _model_for(sp)})
             try:
                 ans, tools = await _run_specialist(steps[i]["task"], sp, seed)
             except Exception as exc:  # noqa: BLE001
@@ -268,7 +271,7 @@ async def run_orchestrator(
                 ans, tools = f"(The {sp.name} step could not complete: {exc})", []
         results[i] = ans
         step_tools[i] = tools
-        _event({"type": "state", "agent": sp.name, "state": "ready", "task": steps[i]["task"], "report": ans})
+        _event({"type": "state", "agent": sp.name, "state": "ready", "task": steps[i]["task"], "report": ans, "model": _model_for(sp)})
 
     while remaining:
         ready = [i for i in remaining if all(d in done for d in steps[i]["depends_on"])]
