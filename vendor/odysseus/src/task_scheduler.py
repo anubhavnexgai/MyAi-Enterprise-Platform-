@@ -249,13 +249,44 @@ class TaskScheduler:
         self._executing_lock = asyncio.Lock()
         self._pending_notifications = []  # completed task notifications
         self._task_defer_counts = {}
-        # Strict serial execution — exactly one task runs at a time. Anything
-        # else (manual trigger, scheduled dispatch, task chain) waits behind
-        # the semaphore as "queued" and starts when the current run finishes.
-        # This is a hard guarantee, not configurable.
+        # LOCAL-model serialization — only ONE task using a local (Ollama) model
+        # runs at a time, because loading a second local model would contend for
+        # the same GPU/VRAM. Remote API models (OpenRouter, etc.) load nothing
+        # locally, so they don't pass through this slot (see _run_slot_kind).
         self._run_semaphore = asyncio.Semaphore(1)
         self._concurrency_cap = 1
+        # REMOTE-API parallelism — tasks backed by a remote model can run several
+        # at once (the provider handles concurrency; OpenRouter free models can be
+        # called many times in parallel). Bounded so we don't trip provider rate
+        # limits (429s). Configurable via the `task_api_concurrency` setting.
+        self._api_concurrency_cap = self._read_api_cap()
+        self._api_run_semaphore = asyncio.Semaphore(self._api_concurrency_cap)
         self._task_handles = {}
+
+    @staticmethod
+    def _read_api_cap() -> int:
+        """Concurrency cap for remote-API-backed tasks (bounded 1..16)."""
+        cap = 4
+        try:
+            from src.settings import get_setting
+            cap = int(get_setting("task_api_concurrency", 4) or 4)
+        except Exception:
+            cap = 4
+        return max(1, min(cap, 16))
+
+    @staticmethod
+    def _endpoint_is_local(url: str) -> bool:
+        """True if the endpoint is a local model server (localhost / Ollama).
+
+        Local models share the machine's GPU, so their tasks must run serially;
+        remote API endpoints can run in parallel. Mirrors llm_core's host check."""
+        try:
+            from urllib.parse import urlparse
+            p = urlparse((url or "").strip())
+            host = (p.hostname or "").lower()
+            return host in {"localhost", "127.0.0.1", "0.0.0.0", "::1"} or p.port == 11434
+        except Exception:
+            return False
 
     def _set_run_progress(self, run_id: str, message: str):
         """Persist short live progress text for Activity while a run is active."""
@@ -451,7 +482,11 @@ class TaskScheduler:
         # old event scanner too caused duplicate emails/notifications for the
         # same calendar event.
         self._note_pings_task = asyncio.create_task(self._note_pings_loop())
-        logger.info(f"Task scheduler started (concurrency cap: {self._concurrency_cap})")
+        logger.info(
+            "Task scheduler started (local-model slot: %d serial, "
+            "remote-API slot: %d parallel)",
+            self._concurrency_cap, self._api_concurrency_cap,
+        )
         # Audit clusters: show any minute-of-day where >1 active scheduled
         # tasks land. Helps spot "all my tasks fire at 9am" patterns the user
         # may want to spread out.
@@ -644,11 +679,15 @@ class TaskScheduler:
             _q_db.close()
 
         try:
-            if bypass_model_slot or not self._task_needs_model_slot(task_id):
+            kind = "none" if bypass_model_slot else self._run_slot_kind(task_id)
+            if kind == "none":
+                # Pure housekeeping (no model) — fully parallel, no slot.
                 await self._execute_task_locked(task_id, run_id, release_executing=release_executing)
                 return
 
-            async with self._run_semaphore:
+            # 'local' → strict serial GPU slot; 'api' → bounded-parallel slot.
+            sem = self._run_semaphore if kind == "local" else self._api_run_semaphore
+            async with sem:
                 await self._execute_task_locked(task_id, run_id, release_executing=release_executing)
         except asyncio.CancelledError:
             # If cancellation happens while queued behind the semaphore,
@@ -969,20 +1008,44 @@ class TaskScheduler:
         "consolidate_memory",
     })
 
-    def _task_needs_model_slot(self, task_id: str) -> bool:
-        """Only LLM/research/model-backed actions should wait in the model
-        queue. Pure housekeeping actions can run immediately."""
-        from core.database import SessionLocal, ScheduledTask
+    def _run_slot_kind(self, task_id: str) -> str:
+        """Classify a task for scheduling concurrency:
+
+          'none'  — no model needed (pure housekeeping) → run fully parallel.
+          'local' — uses a LOCAL model (Ollama) → strict serial GPU slot.
+          'api'   — uses a REMOTE model (OpenRouter, etc.) → bounded parallel.
+
+        This is what lets independent API-backed tasks (and a deep-research run)
+        proceed together instead of starving each other behind one slot — a
+        remote model loads nothing locally, so there's nothing to serialize."""
+        from core.database import SessionLocal, ScheduledTask, CrewMember
 
         db = SessionLocal()
         try:
             task = db.query(ScheduledTask).filter(ScheduledTask.id == task_id).first()
             if not task:
-                return True
+                return "local"  # unknown → safe default (serial)
             task_type = task.task_type or "llm"
-            if task_type != "action":
-                return True
-            return (task.action or "") in self._MODEL_BACKED_ACTIONS
+            if task_type == "action" and (task.action or "") not in self._MODEL_BACKED_ACTIONS:
+                return "none"
+            # Needs a model — resolve its endpoint the same way execution does
+            # (task → crew → owner defaults) and classify local vs remote.
+            endpoint_url = task.endpoint_url
+            if not endpoint_url and getattr(task, "crew_member_id", None):
+                try:
+                    crew = db.query(CrewMember).filter(CrewMember.id == task.crew_member_id).first()
+                    if crew:
+                        endpoint_url = crew.endpoint_url
+                except Exception:
+                    pass
+            if not endpoint_url:
+                try:
+                    endpoint_url, _ = self._resolve_defaults(db, task.owner)
+                except Exception:
+                    endpoint_url = None
+            # Positively-identified local endpoint → serial; everything else
+            # (remote API, or unresolved) → bounded-parallel API slot.
+            return "local" if (endpoint_url and self._endpoint_is_local(endpoint_url)) else "api"
         finally:
             db.close()
 
