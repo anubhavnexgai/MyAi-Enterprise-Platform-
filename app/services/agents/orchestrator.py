@@ -176,13 +176,15 @@ async def run_orchestrator(
     roster: Optional[set] = None,
     on_event: Optional[Callable[[dict], None]] = None,
     synth_extra: str = "",
+    models: Optional[Dict[str, str]] = None,
 ) -> Dict[str, Any]:
     """Returns {answer, plan, agents_used, steps, orchestrated, elapsed_ms}.
 
     ``roster`` restricts the planner to a subset of specialists (Council use).
     ``on_event`` receives structured progress dicts: {type:"plan",steps},
     {type:"state",agent,state,task[,report]}, {type:"synthesizing"} — used to drive
-    the Council's live node graph and to persist per-agent reports."""
+    the Council's live node graph and to persist per-agent reports.
+    ``models`` maps agent name -> model id, overriding each specialist's default."""
     t0 = time.monotonic()
 
     def _emit(msg: str) -> None:
@@ -204,10 +206,16 @@ async def run_orchestrator(
             task, history, user=user, autonomy_label=autonomy_label,
             autonomy_level=autonomy_level, today_iso=today_iso,
             seed_context=seed, extra_system=sp.specialization, allowed_tools=sp.tools,
+            model=(models or {}).get(sp.name) or sp.model,
         )
 
     _emit("Planning…")
-    steps = await _plan(message, roster)
+    if roster and len(roster) == 1:
+        # Single-agent run (e.g. one council member): no planner needed — the
+        # whole goal IS that agent's task. Deterministic and one LLM call cheaper.
+        steps = [{"agent": next(iter(roster)), "task": message, "depends_on": []}]
+    else:
+        steps = await _plan(message, roster)
     _event({"type": "plan", "steps": steps})
 
     # --- Fallback: no usable plan -> single all-tools agent (today's behavior) ---

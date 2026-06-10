@@ -1093,9 +1093,63 @@ body.notes-open .oc-root { right: min(400px, 94vw); }
 /* Streamed-in chat messages animate up */
 .oc-msg { animation: ui-fadein .2s ease both; }
 
+/* --- Motion layer (2026-06-10): staggered entrances + micro-delight ------- */
+@keyframes ui-fade { from { opacity:0; } to { opacity:1; } }
+@keyframes ui-shimmer { 0% { background-position:100% 0; } 100% { background-position:0 0; } }
+@keyframes ui-float { 0%,100% { transform:translateY(0); } 50% { transform:translateY(-6px); } }
+
+/* Stagger the first content blocks of every page as it enters */
+.page-enter > *:nth-child(1) { animation-delay:0s; }
+.page-enter > *:nth-child(2) { animation-delay:.05s; }
+.page-enter > *:nth-child(3) { animation-delay:.1s; }
+.page-enter > *:nth-child(4) { animation-delay:.15s; }
+.page-enter > *:nth-child(5) { animation-delay:.2s; }
+.page-enter > *:nth-child(n+6) { animation-delay:.24s; }
+
+/* KPI tiles + substats cascade in on the dashboard */
+.kpi, .substat { animation: ui-fadein .4s cubic-bezier(.22,.61,.36,1) backwards; }
+.kpi:nth-child(2), .substat:nth-child(2) { animation-delay:.05s; }
+.kpi:nth-child(3), .substat:nth-child(3) { animation-delay:.1s; }
+.kpi:nth-child(4), .substat:nth-child(4) { animation-delay:.15s; }
+.kpi:nth-child(5), .substat:nth-child(5) { animation-delay:.2s; }
+.kpi:nth-child(n+6), .substat:nth-child(n+6) { animation-delay:.25s; }
+.kpi:hover { transform: translateY(-2px); box-shadow: var(--shadow-sm); border-color: var(--accent-soft); }
+.kpi { transition: transform .15s ease, box-shadow .18s ease, border-color .15s ease; }
+
+/* Modal backdrop fades in with the modal */
+.modal-backdrop.open { animation: ui-fade .16s ease both; }
+
+/* Primary buttons lift with an accent glow */
+.btn-primary:hover { transform: translateY(-1px); box-shadow: 0 6px 16px var(--accent-soft); }
+
+/* Nav active pill slides its accent bar in */
+.nav a.active { animation: ui-fadein .18s ease; }
+
+/* Skeleton shimmer for loading placeholders: <div class="skeleton" style="height:..px"> */
+.skeleton {
+  background: linear-gradient(90deg, var(--bg-subtle) 25%, var(--bg-hover, #eef1f5) 37%, var(--bg-subtle) 63%);
+  background-size: 400% 100%;
+  animation: ui-shimmer 1.3s ease infinite;
+  border-radius: var(--r);
+  min-height: 14px;
+}
+
+/* Chat welcome mark gently floats */
+.oc-welcome-logo { animation: ui-float 3.6s ease-in-out infinite; }
+
+/* Slim, modern scrollbars everywhere */
+*::-webkit-scrollbar { width: 10px; height: 10px; }
+*::-webkit-scrollbar-track { background: transparent; }
+*::-webkit-scrollbar-thumb {
+  background: var(--border); border-radius: 99px;
+  border: 3px solid transparent; background-clip: content-box;
+}
+*::-webkit-scrollbar-thumb:hover { background: var(--text-soft); border: 3px solid transparent; background-clip: content-box; }
+
 @media (prefers-reduced-motion: reduce) {
-  #view > *, .oc-msg, .modal-backdrop.open .modal { animation: none; }
-  .card, .btn, .ws-item, .nt-card, .neg-card, .action-card, .oc-suggest-card { transition: none; }
+  #view > *, .oc-msg, .modal-backdrop.open .modal, .modal-backdrop.open,
+  .kpi, .substat, .nav a.active, .skeleton, .oc-welcome-logo { animation: none; }
+  .card, .btn, .ws-item, .nt-card, .neg-card, .action-card, .oc-suggest-card, .kpi { transition: none; }
 }
 
 /* Collapsible sidebar */

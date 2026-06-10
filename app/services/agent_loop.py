@@ -540,6 +540,7 @@ async def run_agent(
     seed_context: str = "",
     extra_system: str = "",
     allowed_tools: Optional[set] = None,
+    model: Optional[str] = None,
 ) -> Tuple[str, List[str]]:
     """Run the tool-calling loop. Returns (final_answer, tools_used).
 
@@ -593,7 +594,7 @@ async def run_agent(
                      "Stop using tools now. Using only the information gathered above, "
                      "give the user a clear, complete answer and cite the source URLs you used."})
         try:
-            r = await llm.chat(msgs, temperature=0.3)
+            r = await llm.chat(msgs, temperature=0.3, model=model)
             return ((r.get("message", {}) or {}).get("content") or "").strip()
         except Exception:
             return ""
@@ -608,7 +609,7 @@ async def run_agent(
             if step:
                 msgs.append({"role": "user", "content": step})
         try:
-            resp = await llm.chat(msgs, tools=turn_tools, temperature=0.4)
+            resp = await llm.chat(msgs, tools=turn_tools, temperature=0.4, model=model)
         except Exception as exc:
             logger.warning("agent llm call failed: %s", exc)
             return (content or "I couldn't reach the model. Please try again."), tools_used
@@ -670,13 +671,18 @@ async def run_agent_stream(
     today_iso: str,
     seed_context: str = "",
     model: Optional[str] = None,
+    mode: str = "agent",
+    force_web: bool = False,
 ):
     """Streaming variant of run_agent. Async-generates event dicts:
       {"type":"tool","name":...}   — a tool was invoked
       {"type":"delta","text":...}  — a chunk of the final answer (token stream)
       {"type":"done","tools_used":[...],"answer":...}
     Tool rounds run non-streamed (to decide/execute tools); the final answer is
-    streamed token-by-token. Shares all tool/autonomy logic with run_agent."""
+    streamed token-by-token. Shares all tool/autonomy logic with run_agent.
+
+    ``mode="chat"`` skips the tool phase entirely (pure LLM conversation);
+    ``force_web=True`` nudges the model to ground this turn with web_search."""
     llm = get_llm_client()
     msgs: List[Dict[str, Any]] = [
         {"role": "system", "content": _system_prompt(
@@ -695,11 +701,16 @@ async def run_agent_stream(
         msgs.insert(-1, {"role": "system", "content": hints["system_injection"]})
 
     tools_used: List[str] = []
-    turn_tools = _tools_for(message)
+    turn_tools = _tools_for(message) if mode != "chat" else []
+    if force_web and mode != "chat":
+        msgs.insert(-1, {"role": "system", "content":
+                         "The user enabled WEB SEARCH for this turn. Call web_search "
+                         "to ground your answer in live sources before replying, and "
+                         "cite the URLs you used."})
     t0 = time.monotonic()
 
     # --- Tool phase (non-streamed): let the model gather what it needs ---
-    for _round in range(MAX_ROUNDS):
+    for _round in range(MAX_ROUNDS if turn_tools else 0):
         if time.monotonic() - t0 > TIME_BUDGET_S:
             break
         try:

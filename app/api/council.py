@@ -18,7 +18,7 @@ from typing import Any, Dict, List, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
-from sqlalchemy import select
+from sqlalchemy import func, select
 
 from app.auth.jwt import PlatformTokenClaims
 from app.auth.middleware import get_current_user
@@ -105,7 +105,8 @@ async def _save_report(run: _Run, agent: str, title: str, content: str) -> None:
 
 
 async def _run_council(run: _Run, user: PlatformTokenClaims, level: int,
-                       roster: Optional[set]) -> None:
+                       roster: Optional[set],
+                       models: Optional[Dict[str, str]] = None) -> None:
     """Background task: orchestrate the council and stream events into the run."""
     def on_event(ev: dict) -> None:
         run.events.append(ev)
@@ -124,6 +125,7 @@ async def _run_council(run: _Run, user: PlatformTokenClaims, level: int,
             user=user, autonomy_label=aut_label, autonomy_level=level,
             today_iso=datetime.now(timezone.utc).strftime("%A, %d %B %Y"),
             roster=roster, on_event=on_event, synth_extra=COUNCIL_SYNTH,
+            models=models,
         )
         run.answer = res.get("answer", "") or ""
         await _save_report(run, "council",
@@ -143,6 +145,7 @@ class RunReq(BaseModel):
     goal: str
     project_id: Optional[int] = None
     agent: Optional[str] = None   # single-agent run; omit for a full council review
+    models: Optional[Dict[str, str]] = None  # per-agent model overrides (agent -> model id)
 
 
 @router.post("/run")
@@ -160,10 +163,14 @@ async def start_run(req: RunReq, user: PlatformTokenClaims = Depends(get_current
     else:
         roster = council_names()
 
+    # Per-agent model overrides: only council members, only sane string ids.
+    models = {k: v.strip() for k, v in (req.models or {}).items()
+              if k in council_names() and isinstance(v, str) and v.strip()}
+
     _RUNS[run_id] = run
     _prune_runs()
     level = await _autonomy_level(user)
-    asyncio.create_task(_run_council(run, user, level, roster))
+    asyncio.create_task(_run_council(run, user, level, roster, models or None))
     await get_audit_service().log(
         tenant_id=user.tenant_id, user_id=user.sub, event_type="council.run",
         message=goal[:200], payload={"run_id": run_id, "agent": req.agent or "full"},
@@ -264,9 +271,23 @@ async def list_projects(user: PlatformTokenClaims = Depends(get_current_user)) -
             .order_by(CouncilProject.updated_at.desc())
         )
         ps = r.scalars().all()
+        # Per-project report stats for the picker (count + most recent run time).
+        stats = await s.execute(
+            select(AgentReport.project_id,
+                   func.count(AgentReport.id),
+                   func.max(AgentReport.created_at))
+            .where(AgentReport.tenant_id == user.tenant_id)
+            .where(AgentReport.creator_id == user.sub)
+            .where(AgentReport.project_id.isnot(None))
+            .group_by(AgentReport.project_id)
+        )
+        by_project = {pid: (cnt, last) for pid, cnt, last in stats.all()}
     return {"projects": [
         {"id": p.id, "name": p.name, "brief": p.brief, "status": p.status,
-         "created_at": str(p.created_at)} for p in ps
+         "created_at": str(p.created_at),
+         "report_count": by_project.get(p.id, (0, None))[0],
+         "last_run": (str(by_project[p.id][1]) if p.id in by_project and by_project[p.id][1] else None)}
+        for p in ps
     ]}
 
 

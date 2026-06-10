@@ -94,6 +94,8 @@ class ChatRequest(BaseModel):
     persona: Optional[str] = None
     stream: bool = False
     model: Optional[str] = None   # optional per-chat model override (OpenRouter id)
+    mode: Optional[str] = None    # "agent" (tools) | "chat" (pure LLM, no tools)
+    web: bool = False             # force a web_search-grounded answer this turn
 
 
 class SendEmailRequest(BaseModel):

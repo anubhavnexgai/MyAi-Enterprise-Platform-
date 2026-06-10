@@ -84,6 +84,16 @@
 .ao-dept{font-size:10px;font-weight:800;letter-spacing:.05em;color:var(--text-muted);background:var(--bg);border:1px solid var(--border);border-radius:var(--r-sm);padding:1px 6px}
 .ao-agent-title{font-weight:700;color:var(--text-strong);font-size:13.5px}
 .ao-agent-task{font-size:11.5px;color:var(--text-muted);margin-top:5px;min-height:30px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.ao-agent-model{display:flex;align-items:center;gap:4px;margin-top:8px;font-size:10.5px;color:var(--text-soft);
+  border-top:1px dashed var(--border);padding-top:6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ao-agent-model .material-symbols-rounded{font-size:13px;color:var(--accent)}
+.ao-agent{animation:aoRise .45s cubic-bezier(.22,.9,.35,1) backwards}
+.ao-agent:nth-child(1){animation-delay:.02s}.ao-agent:nth-child(2){animation-delay:.08s}
+.ao-agent:nth-child(3){animation-delay:.14s}.ao-agent:nth-child(4){animation-delay:.2s}
+.ao-agent:nth-child(5){animation-delay:.26s}.ao-agent:nth-child(6){animation-delay:.32s}
+@keyframes aoRise{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
+.ao-agent.state-ready{animation:aoPop .35s ease}
+@keyframes aoPop{0%{transform:scale(1)}45%{transform:scale(1.035)}100%{transform:scale(1)}}
 .ao-sbadge{font-size:9.5px;font-weight:800;letter-spacing:.05em;padding:2px 7px;border-radius:var(--r-pill);text-transform:uppercase}
 .ao-agent.state-idle{border-color:var(--border)}
 .ao-agent.state-idle .ao-sbadge{background:var(--bg);color:var(--text-soft);border:1px solid var(--border)}
@@ -122,7 +132,13 @@
   const SJ=window.safeFetchJson;
   const AGENTS=['research','business','architect','developer','marketing','critic'];
   const CHIPS=[['research','Research Brief'],['business','Business Plan'],['architect','Architecture'],['developer','Prototype Code'],['marketing','Launch Strategy'],['critic','Critique']];
-  let running=false, agentMap={}, projectList=[];
+  let running=false, agentMap={}, projectList=[], MODELS=[];
+
+  // Per-agent model overrides (agent -> OpenRouter id), kept client-side.
+  let modelMap={}; try{ modelMap=JSON.parse(localStorage.getItem('council_models')||'{}'); }catch(e){}
+  function saveModelMap(){ try{ localStorage.setItem('council_models', JSON.stringify(modelMap)); }catch(e){} }
+  function shortModel(m){ return m?String(m).split('/').pop().replace(':free',''):'default model'; }
+  async function loadModels(){ const d=await SJ('/api/copilot/models'); MODELS=(d&&d.models)||[]; }
 
   function badge(state){ return (state||'idle').toUpperCase(); }
 
@@ -134,6 +150,7 @@
           '<span class="ao-sbadge">'+esc(badge(a.state))+'</span></div>'+
         '<div class="ao-agent-title">'+esc(a.title||a.name)+'</div>'+
         '<div class="ao-agent-task">'+(a.task?esc(a.task):'<span style="color:var(--text-soft)">No task yet</span>')+'</div>'+
+        '<div class="ao-agent-model" title="Model for this agent"><span class="material-symbols-rounded">memory</span><span>'+esc(shortModel(modelMap[a.name]))+'</span></div>'+
       '</div>'
     )).join('') || '<div class="ws-empty">No agents.</div>';
     root.querySelectorAll('.ao-agent').forEach(el=>el.onclick=()=>openAgent(el.dataset.agent));
@@ -163,7 +180,11 @@
     const d=await SJ('/api/council/projects'); const sel=document.getElementById('aoProject');
     projectList=(d&&d.projects)||[];
     const cur=sel.value; sel.innerHTML='<option value="">— New / unsaved —</option>'+
-      projectList.map(p=>'<option value="'+p.id+'">'+esc(p.name)+'</option>').join('');
+      projectList.map(p=>{
+        const extra=[]; if(p.report_count) extra.push(p.report_count+' report'+(p.report_count===1?'':'s'));
+        if(p.last_run) extra.push('last '+String(p.last_run).slice(0,10));
+        return '<option value="'+p.id+'">'+esc(p.name+(extra.length?' · '+extra.join(' · '):''))+'</option>';
+      }).join('');
     if(cur) sel.value=cur;
   }
 
@@ -229,13 +250,21 @@
 
   function openAgent(name){
     const a=agentMap[name]; if(!a) return;
-    const goal=document.getElementById('aoGoal').value.trim();
+    const cur=modelMap[name]||'';
+    const opts='<option value="">Default (server choice)</option>'+
+      MODELS.map(m=>'<option value="'+esc(m)+'"'+(m===cur?' selected':'')+'>'+esc(m)+'</option>').join('');
     window.openModal('<div class="modal-head"><h3>'+esc(a.title||name)+'</h3><button class="icon-btn" data-close><span class="material-symbols-rounded">close</span></button></div>'+
       '<div class="modal-body"><div class="card-sub">Department '+esc(a.dept_code||'')+' · state: '+esc(a.state||'idle')+'</div>'+
       '<p style="font-size:13.5px;margin-top:10px">'+esc(a.task||'No current task.')+'</p>'+
-      '<p style="color:var(--text-muted);font-size:12.5px">Run just this agent on the project goal above to generate a fresh report (awaiting your approval).</p></div>'+
+      '<label class="ws-field" style="margin-top:8px">Model for this agent'+
+      '<select class="ws-input" id="aoAgentModel">'+opts+'</select></label>'+
+      '<p style="color:var(--text-muted);font-size:12.5px;margin-top:10px">Run just this agent on the project goal above to generate a fresh report (awaiting your approval).</p></div>'+
       '<div class="modal-foot" style="display:flex;gap:8px;justify-content:flex-end;padding:12px 16px;border-top:1px solid var(--border)">'+
       '<button class="btn btn-primary" data-act="run"><span class="material-symbols-rounded">play_arrow</span> Run '+esc(a.title||name)+'</button></div>');
+    const ms=document.getElementById('aoAgentModel');
+    if(ms) ms.onchange=()=>{ if(ms.value) modelMap[name]=ms.value; else delete modelMap[name]; saveModelMap();
+      const el=root.querySelector('.ao-agent[data-agent="'+name+'"] .ao-agent-model span:last-child'); if(el) el.textContent=shortModel(modelMap[name]);
+      toast((a.title||name)+' → '+shortModel(modelMap[name]),'success'); };
     document.querySelector('[data-act="run"]')?.addEventListener('click',()=>{ window.closeModal&&window.closeModal(); runCouncil(name); });
   }
 
@@ -245,6 +274,8 @@
     if(!goal){ toast('Enter a project goal first','error'); document.getElementById('aoGoal').focus(); return; }
     const project_id=document.getElementById('aoProject').value||null;
     const body={goal}; if(project_id) body.project_id=parseInt(project_id); if(agent) body.agent=agent;
+    const models={}; AGENTS.forEach(n=>{ if(modelMap[n]) models[n]=modelMap[n]; });
+    if(Object.keys(models).length) body.models=models;
     const r=await SJ('/api/council/run',{method:'POST',body});
     if(!r||!r.run_id){ toast('Could not start the council','error'); return; }
     try{ localStorage.setItem('council_active',r.run_id); }catch(e){}
@@ -311,7 +342,7 @@
     document.querySelector('[data-act="save"]')?.addEventListener('click',saveProject);
   };
 
-  loadAgents(); loadReports(); loadProjects();
+  loadAgents(); loadReports(); loadProjects(); loadModels();
   // Resume an in-progress council run after a refresh / in another tab.
   try{ const active=localStorage.getItem('council_active'); if(active) streamRun(active,true); }catch(e){}
 })();

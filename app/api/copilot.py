@@ -638,6 +638,8 @@ async def chat_stream_endpoint(
                 msg, history, user=user, autonomy_label=aut_label,
                 autonomy_level=autonomy_level, today_iso=today_iso,
                 model=(payload.model or None),
+                mode=(payload.mode or "agent"),
+                force_web=bool(payload.web),
             ):
                 yield f"data: {json.dumps(ev)}\n\n"
         except Exception as exc:  # noqa: BLE001

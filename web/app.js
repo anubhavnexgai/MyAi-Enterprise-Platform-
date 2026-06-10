@@ -131,7 +131,7 @@ async function safeFetchJson(url, options = {}) {
 /* ---------- Router ---------- */
 // Bump this to force every page fragment to refetch (defeats SW + HTTP cache,
 // which otherwise serve stale pages/*.html even when the server has new ones).
-const ASSET_BUILD = "20260609h";
+const ASSET_BUILD = "20260610a";
 async function loadFragment(route) {
   const path = ROUTES[route] || ROUTES.dashboard;
   try {
@@ -166,6 +166,11 @@ async function go(route) {
   // highlight nav
   nav.querySelectorAll("a").forEach(a => a.classList.toggle("active", a.dataset.route === route));
   await loadFragment(route);
+
+  // Page-enter animation: retrigger the fade/slide on every navigation.
+  view.classList.remove("page-enter");
+  void view.offsetWidth; // reflow so the animation restarts
+  view.classList.add("page-enter");
 
   switch (route) {
     case "dashboard":  initDashboard();  break;
@@ -427,6 +432,24 @@ function toast(message, tone = "success") {
   setTimeout(() => { el.style.opacity = "0"; el.style.transform = "translateY(8px)"; setTimeout(() => el.remove(), 320); }, 3600);
 }
 
+/* Animate a numeric stat from 0 to its rendered value (keeps prefixes/suffixes
+   like "%" or "$"). No-op for non-numeric text or reduced-motion users. */
+function countUp(el, dur = 650) {
+  if (window.matchMedia && matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+  const txt = (el.textContent || "").trim();
+  const m = txt.match(/^([^\d-]*)([\d,]+(?:\.\d+)?)(\D*)$/);
+  if (!m) return;
+  const target = parseFloat(m[2].replace(/,/g, ""));
+  if (!isFinite(target) || target === 0) return;
+  const dec = (m[2].split(".")[1] || "").length;
+  const t0 = performance.now();
+  (function tick(t) {
+    const p = Math.min(1, (t - t0) / dur), e = 1 - Math.pow(1 - p, 3); // ease-out cubic
+    el.textContent = m[1] + (target * e).toFixed(dec).replace(/\B(?=(\d{3})+(?!\d))/g, ",") + m[3];
+    if (p < 1) requestAnimationFrame(tick);
+  })(t0);
+}
+
 /* ---------- Compose & send email (real Gmail/Outlook send, autonomy-gated) ---------- */
 async function openComposeEmail(prefill = {}) {
   // Decide which providers can send (connected).
@@ -636,6 +659,7 @@ async function initDashboard() {
         <div class="kpi-foot">${k.foot || ""}</div>
       </div>
     `).join("");
+    kpiRow.querySelectorAll(".kpi-value").forEach(el => countUp(el));
   }
 
   // Retention substats
@@ -658,6 +682,7 @@ async function initDashboard() {
         <div class="substat-label">${l}</div>
       </div>
     `).join("");
+    subWrap.querySelectorAll(".substat-val").forEach(el => countUp(el));
   }
 
   // Active tasks (backend key is "negotiations" for legacy reasons)

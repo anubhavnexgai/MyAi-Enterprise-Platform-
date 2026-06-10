@@ -36,8 +36,7 @@
         <div class="oc-input-bottom">
           <div class="oc-input-left">
             <button class="oc-tool" id="ocOverflow" title="More"><span class="material-symbols-rounded">add</span></button>
-            <button class="oc-tool" id="ocWeb" title="Web search"><span class="material-symbols-rounded">language</span></button>
-            <button class="oc-tool" id="ocBash" title="Shell access (Agent)"><span class="material-symbols-rounded">terminal</span></button>
+            <button class="oc-tool" id="ocWeb" title="Force web search this message"><span class="material-symbols-rounded">language</span></button>
             <button class="oc-tool" id="ocMic" title="Voice input"><span class="material-symbols-rounded">mic</span></button>
           </div>
           <div class="oc-input-right">
@@ -169,7 +168,7 @@
   const root=document.getElementById('ody-chat-root'); if(!root || root.dataset.bound==='1') return; root.dataset.bound='1';
   const OUI='/api/oui'; const $=s=>root.querySelector(s);
   const hist=$('#ocHistory'), input=$('#ocInput');
-  const state={sid:null, model:null, mode:'agent', web:false, bash:false, models:[], streaming:false, lastUser:'', msgCount:0, history:[]};
+  const state={sid:null, model:null, mode:'agent', web:false, models:[], streaming:false, lastUser:'', msgCount:0, history:[]};
   const API='/api';  // native MyAi backend (real connectors + reliable thread persistence)
   const esc=s=>(window.escapeHtml?window.escapeHtml(s):String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])));
   const notify=(m,t)=>(window.toast?window.toast(m,t||'info'):console.log(m));
@@ -319,7 +318,8 @@
     const flush=()=>{ pending=false; ai.body.innerHTML=stepsHtml()+renderMD(acc)+'<span class="oc-cursor"></span>'; hist.scrollTop=hist.scrollHeight; };
     const schedule=()=>{ if(pending) return; pending=true; requestAnimationFrame(flush); };
     try{
-      const res=await fetch(API+'/copilot/chat/stream',{method:'POST',credentials:'include',headers:{'Content-Type':'application/json'},body:JSON.stringify({message:text, history:hist0, model:(state.model&&state.model.model!=='MyAi'?state.model.model:null)})});
+      const res=await fetch(API+'/copilot/chat/stream',{method:'POST',credentials:'include',headers:{'Content-Type':'application/json'},body:JSON.stringify({message:text, history:hist0, model:(state.model&&state.model.model!=='MyAi'?state.model.model:null), mode:state.mode, web:state.web})});
+      if(state.web){ state.web=false; $('#ocWeb').classList.remove('on'); }   // one-shot per message
       const rd=res.body.getReader(); const dec=new TextDecoder(); let buf='';
       while(true){ const {done,value}=await rd.read(); if(done) break; buf+=dec.decode(value,{stream:true}); const lines=buf.split('\n'); buf=lines.pop()||'';
         for(const line of lines){ if(!line.startsWith('data:')) continue; const dd=line.slice(5).trim(); if(dd==='[DONE]') continue;
@@ -339,7 +339,7 @@
   }
 
   // ---------- mode / toggles / input ----------
-  function setMode(m){ state.mode=m; $('#ocModeAgent').classList.toggle('active',m==='agent'); $('#ocModeChat').classList.toggle('active',m==='chat'); $('#ocModePill').textContent=m==='agent'?'Agent':'Chat'; $('#ocBash').style.display=m==='agent'?'':'none'; }
+  function setMode(m){ state.mode=m; $('#ocModeAgent').classList.toggle('active',m==='agent'); $('#ocModeChat').classList.toggle('active',m==='chat'); $('#ocModePill').textContent=m==='agent'?'Agent':'Chat'; $('#ocWeb').style.display=m==='agent'?'':'none'; input.placeholder=m==='agent'?'Message MyAi… (Agent: can use your tools)':'Message MyAi… (Chat: direct model, no tools)'; }
   function toggle(btn,key){ state[key]=!state[key]; btn.classList.toggle('on',state[key]); }
   function autosize(){ input.style.height='auto'; input.style.height=Math.min(input.scrollHeight,200)+'px'; }
 
@@ -370,8 +370,7 @@
   input.addEventListener('input', autosize);
   $('#ocModeAgent').addEventListener('click',()=>setMode('agent'));
   $('#ocModeChat').addEventListener('click',()=>setMode('chat'));
-  $('#ocWeb').addEventListener('click', e=>toggle(e.currentTarget,'web'));
-  $('#ocBash').addEventListener('click', e=>toggle(e.currentTarget,'bash'));
+  $('#ocWeb').addEventListener('click', e=>{ toggle(e.currentTarget,'web'); notify(state.web?'Web search will ground the next message':'Web search override off','info'); });
   $('#ocModelPick').addEventListener('click', e=>openModelMenu(e.currentTarget));
   $('#ocToggleSide').addEventListener('click',()=>root.classList.toggle('side-collapsed'));
   $('#ocSearch').addEventListener('input', e=>{ const q=e.target.value.toLowerCase(); root.querySelectorAll('.oc-session-item').forEach(it=>{ it.style.display=it.textContent.toLowerCase().includes(q)?'':'none'; }); });
