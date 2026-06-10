@@ -326,11 +326,16 @@ class ResearchHandler:
                 # If we have partial results, save what we have
                 researcher = entry.get("researcher")
                 if researcher and researcher.evolving_report:
+                    _stats = researcher.get_stats()
                     entry["result"] = self._format_research_report(
                         query, researcher.evolving_report,
-                        researcher.get_stats(), hard_timeout,
+                        _stats, hard_timeout,
                     )
                     entry["status"] = "done"
+                    # Persist stats + raw report too, so the Library (which reads
+                    # stats) and visual report don't choke on a partial save.
+                    entry["stats"] = _stats
+                    entry["raw_report"] = strip_thinking(researcher.evolving_report)
                     self._save_result(session_id, entry)
                     try:
                         sources = self._extract_sources(researcher.findings) if researcher.findings else []
@@ -353,11 +358,14 @@ class ResearchHandler:
                 researcher = entry.get("researcher")
                 if researcher and getattr(researcher, "evolving_report", None):
                     try:
+                        _stats = researcher.get_stats()
                         entry["result"] = self._format_research_report(
                             query, researcher.evolving_report,
-                            researcher.get_stats(), hard_timeout,
+                            _stats, hard_timeout,
                         )
                         entry["status"] = "done"
+                        entry["stats"] = _stats
+                        entry["raw_report"] = strip_thinking(researcher.evolving_report)
                     except Exception:
                         entry["result"] = f"Research error: {e}"
                 else:
