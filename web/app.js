@@ -22,8 +22,6 @@ const ROUTES = {
   cookbook: "pages/cookbook.html",
   research: "pages/research.html",
   agents: "pages/agents.html",
-  compare: "pages/compare.html",
-  gallery: "pages/gallery.html",
 };
 
 // Shared helper for the Odysseus-backed workspace pages: thin wrappers around
@@ -133,7 +131,7 @@ async function safeFetchJson(url, options = {}) {
 /* ---------- Router ---------- */
 // Bump this to force every page fragment to refetch (defeats SW + HTTP cache,
 // which otherwise serve stale pages/*.html even when the server has new ones).
-const ASSET_BUILD = "20260611a";
+const ASSET_BUILD = "20260611b";
 async function loadFragment(route) {
   const path = ROUTES[route] || ROUTES.dashboard;
   try {
@@ -201,8 +199,6 @@ const PALETTE_ITEMS = [
   { icon: "sticky_note_2", label: "Notes", run: () => (window.openNotesDrawer ? window.openNotesDrawer() : (location.hash = "#/notes")) },
   { icon: "checklist", label: "Tasks & Routines", run: () => (location.hash = "#/tasks") },
   { icon: "restaurant", label: "Cookbook", run: () => (location.hash = "#/cookbook") },
-  { icon: "compare_arrows", label: "Compare models", run: () => (location.hash = "#/compare") },
-  { icon: "photo_library", label: "Gallery", run: () => (location.hash = "#/gallery") },
   { icon: "monitoring", label: "Logs", run: () => (location.hash = "#/logs") },
   { icon: "hub", label: "Connectors", run: () => (location.hash = "#/connectors") },
   { icon: "settings", label: "Settings", run: () => (location.hash = "#/settings") },
