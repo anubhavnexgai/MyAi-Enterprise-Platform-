@@ -377,17 +377,44 @@
   function autosize(){ input.style.height='auto'; input.style.height=Math.min(input.scrollHeight,200)+'px'; }
 
   // ---------- voice (browser Web Speech API — zero server config) ----------
-  let recog=null;
-  $('#ocMic').addEventListener('click', ()=>{
+  // Note: the Web Speech API streams audio to the browser vendor's cloud STT.
+  // Official Google Chrome and Edge support it; Chromium forks (Arc, Brave) often
+  // return a `network` error because they lack Google's speech backend key.
+  let recog=null, voiceStopping=false;
+  const VOICE_ERRORS={
+    'network':'Voice typing isn\'t available in this browser. Arc/Brave can\'t reach the cloud speech service — try Google Chrome or Edge.',
+    'not-allowed':'Microphone blocked. Allow mic access for this site in your browser settings, then try again.',
+    'service-not-allowed':'Microphone blocked by the browser/OS. Allow mic access, then try again.',
+    'audio-capture':'No microphone found. Plug one in (or check your input device) and try again.',
+    'no-speech':'Didn\'t catch anything — tap the mic and speak.',
+    'aborted':'',
+  };
+  function startVoice(retry){
     const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
-    if(!SR){ notify('Voice input needs Chrome/Edge (Web Speech API)','error'); return; }
-    if(recog){ try{recog.stop();}catch(e){} return; }
-    recog=new SR(); recog.lang='en-US'; recog.interimResults=true; recog.continuous=false;
-    const base=input.value; let finalTxt='';
-    recog.onresult=(e)=>{ let interim=''; for(let i=e.resultIndex;i<e.results.length;i++){ const t=e.results[i][0].transcript; if(e.results[i].isFinal) finalTxt+=t; else interim+=t; } input.value=(base?base+' ':'')+finalTxt+interim; autosize(); };
-    recog.onerror=(e)=>{ notify('Voice: '+(e.error||'error'),'error'); };
-    recog.onend=()=>{ $('#ocMic').classList.remove('on'); recog=null; input.focus(); };
-    try{ recog.start(); $('#ocMic').classList.add('on'); notify('Listening… click mic to stop','info'); }catch(e){ recog=null; notify('Could not start mic','error'); }
+    if(!SR){ notify('Voice input needs Chrome or Edge (Web Speech API).','error'); return; }
+    if(!window.isSecureContext && !/^(localhost|127\.0\.0\.1)/.test(location.hostname)){
+      notify('Voice typing needs a secure page (https). Open MyAi over https and try again.','error'); return; }
+    recog=new SR(); recog.lang='en-US'; recog.interimResults=true; recog.continuous=false; recog.maxAlternatives=1;
+    const base=input.value; let finalTxt='', got=false;
+    recog.onresult=(e)=>{ got=true; let interim=''; for(let i=e.resultIndex;i<e.results.length;i++){ const t=e.results[i][0].transcript; if(e.results[i].isFinal) finalTxt+=t; else interim+=t; } input.value=(base?base+' ':'')+finalTxt+interim; autosize(); };
+    recog.onerror=(e)=>{
+      const code=e.error||'error';
+      // 'network' is often transient on first attempt — retry once silently.
+      if(code==='network' && !retry){ recog._retry=true; return; }
+      const msg=(code in VOICE_ERRORS)?VOICE_ERRORS[code]:('Voice error: '+code);
+      if(msg) notify(msg,'error');
+    };
+    recog.onend=()=>{
+      const wantRetry=recog&&recog._retry; $('#ocMic').classList.remove('on'); recog=null;
+      if(wantRetry && !voiceStopping){ setTimeout(()=>startVoice(true),250); return; }  // one retry
+      voiceStopping=false; input.focus();
+    };
+    try{ recog.start(); $('#ocMic').classList.add('on'); if(!retry) notify('Listening… click the mic to stop','info'); }
+    catch(e){ recog=null; $('#ocMic').classList.remove('on'); notify('Could not start the microphone.','error'); }
+  }
+  $('#ocMic').addEventListener('click', ()=>{
+    if(recog){ voiceStopping=true; try{recog.stop();}catch(e){} return; }
+    startVoice(false);
   });
 
   // ---------- overflow menu ----------
