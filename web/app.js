@@ -131,7 +131,7 @@ async function safeFetchJson(url, options = {}) {
 /* ---------- Router ---------- */
 // Bump this to force every page fragment to refetch (defeats SW + HTTP cache,
 // which otherwise serve stale pages/*.html even when the server has new ones).
-const ASSET_BUILD = "20260611e";
+const ASSET_BUILD = "20260611f";
 async function loadFragment(route) {
   const path = ROUTES[route] || ROUTES.dashboard;
   try {
@@ -711,25 +711,11 @@ async function _doSendEmail(provider, payload, confirmed, statusEl) {
    Dashboard
    ========================================================= */
 async function initDashboard() {
-  initAutonomy();  // AI Autonomy card (moved here from the removed Inbox page)
   const data = (await safeFetchJson("/api/dashboard")) || MOCK;
 
   // Last updated
   const ts = document.getElementById("lastUpdated");
   if (ts) ts.textContent = new Date().toLocaleTimeString();
-
-  // KPI tiles
-  const kpiRow = document.getElementById("kpiRow");
-  if (kpiRow) {
-    kpiRow.innerHTML = (data.kpis || MOCK.kpis).map(k => `
-      <div class="kpi ${k.tone || ""}">
-        <div class="kpi-label">${k.label}</div>
-        <div class="kpi-value">${k.value}</div>
-        <div class="kpi-foot">${k.foot || ""}</div>
-      </div>
-    `).join("");
-    kpiRow.querySelectorAll(".kpi-value").forEach(el => countUp(el));
-  }
 
   // Retention substats
   const r = data.retention || MOCK.retention;
@@ -756,12 +742,35 @@ async function initDashboard() {
 
   // Active tasks (backend key is "negotiations" for legacy reasons)
   const list = document.getElementById("negList");
-  const negs = data.negotiations || MOCK.negotiations;
+  const allNegs = data.negotiations || MOCK.negotiations;
+
+  // Status filter chips above the list — clicking one filters the task list
+  // (replaces the old passive KPI tiles).
+  let taskFilter = "all";
+  const _statusOrder = ["WAITING ON YOU", "RUNNING", "QUEUED", "PAUSED"];
+  const _titleCase = (s) => String(s || "").toLowerCase().replace(/\b\w/g, c => c.toUpperCase());
+  function renderTaskFilters() {
+    const bar = document.getElementById("taskFilters");
+    if (!bar) return;
+    const real = allNegs.filter(n => n.id !== "EMPTY-1");
+    const counts = {};
+    real.forEach(n => { counts[n.status] = (counts[n.status] || 0) + 1; });
+    const chips = [["all", "All", real.length]];
+    _statusOrder.forEach(s => { if (counts[s]) chips.push([s, _titleCase(s), counts[s]]); });
+    bar.innerHTML = chips.map(([k, lbl, n]) =>
+      `<button class="task-filter${k === taskFilter ? " active" : ""}" data-f="${escapeHtml(k)}">${escapeHtml(lbl)}<span class="tf-count">${n}</span></button>`).join("");
+    bar.querySelectorAll(".task-filter").forEach(b => b.onclick = () => {
+      taskFilter = b.dataset.f; renderTaskFilters();
+      paintTasks(taskFilter === "all" ? allNegs : allNegs.filter(n => n.status === taskFilter));
+    });
+  }
+
+  function paintTasks(negs) {
   if (list && !negs.length) {
     list.innerHTML = `
       <div style="padding:30px 18px;text-align:center;color:var(--text-muted)">
         <span class="material-symbols-rounded" style="font-size:40px;color:var(--text-muted)">task_alt</span>
-        <h3 style="margin:10px 0 4px;color:var(--text-strong)">No active tasks</h3>
+        <h3 style="margin:10px 0 4px;color:var(--text-strong)">${taskFilter === "all" ? "No active tasks" : "No tasks match this filter"}</h3>
         <p style="font-size:13px">When MyAi is working on something for you — or something needs your approval — it shows up here.</p>
       </div>`;
   } else if (list) {
@@ -919,14 +928,13 @@ async function initDashboard() {
       }
     });
   }
+  }  // end paintTasks
+
+  renderTaskFilters();
+  paintTasks(taskFilter === "all" ? allNegs : allNegs.filter(n => n.status === taskFilter));
 
   // Refresh button
   document.getElementById("refreshBtn")?.addEventListener("click", () => initDashboard());
-
-  // "Ask Assistant" header button → open the copilot
-  const askBtn = [...document.querySelectorAll(".page-header .btn")]
-    .find(b => /ask assistant/i.test(b.textContent));
-  askBtn?.addEventListener("click", () => { location.hash = "#/copilot"; });
 }
 
 function openNegotiationModal(n) {
@@ -2791,7 +2799,7 @@ function escapeHtml(s) {
 /* =========================================================
    Logs — real audit log only, no synthetic events
    ========================================================= */
-let logState = { paused: false, autoscroll: true, filter: "All", rows: [], timer: null };
+let logState = { autoscroll: true, filter: "All", rows: [], timer: null };
 
 function _logType(r) {
   const ev = r.event_type || "";
@@ -2953,12 +2961,6 @@ async function initLogs() {
     logState.autoscroll = !logState.autoscroll;
     e.currentTarget.classList.toggle("on", logState.autoscroll);
   });
-  document.getElementById("pauseBtn")?.addEventListener("click", e => {
-    logState.paused = !logState.paused;
-    e.currentTarget.innerHTML = logState.paused
-      ? `<span class="material-symbols-rounded">play_arrow</span>Resume`
-      : `<span class="material-symbols-rounded">pause</span>Pause`;
-  });
   document.getElementById("exportBtn")?.addEventListener("click", () => {
     const blob = new Blob([JSON.stringify(logState.rows.map(r => r.raw), null, 2)], { type: "application/json" });
     const url = URL.createObjectURL(blob);
@@ -2970,7 +2972,6 @@ async function initLogs() {
   // Poll the real audit log every 4 seconds
   if (logState.timer) clearInterval(logState.timer);
   logState.timer = setInterval(async () => {
-    if (logState.paused) return;
     logState.rows = await fetchRealLogs();
     renderLogs(true);
   }, 4000);

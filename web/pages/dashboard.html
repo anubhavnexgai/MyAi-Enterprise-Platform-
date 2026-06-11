@@ -4,10 +4,6 @@
     <div class="page-subtitle">Your AI assistant at a glance</div>
   </div>
   <div style="display:flex;gap:8px;flex-wrap:wrap">
-    <button class="btn">
-      <span class="material-symbols-rounded">tips_and_updates</span>
-      Ask Assistant
-    </button>
     <button class="btn btn-primary" id="refreshBtn">
       <span class="material-symbols-rounded">refresh</span>
       Refresh
@@ -19,25 +15,6 @@
   <span class="live-dot"></span>
   Live · Last synced: <b id="lastUpdated" style="color:var(--text)">--:--:--</b>
 </div>
-
-<!-- AI Autonomy — slider + current level; details collapsible -->
-<div class="card autonomy-card" style="padding:14px 16px;margin-bottom:16px">
-  <div class="autonomy-head" style="margin-bottom:6px">
-    <div style="display:flex;align-items:center;gap:10px">
-      <h3 class="card-title" style="margin:0">AI Autonomy</h3>
-      <span class="pill pill-red" id="levelBadge">L1 — Observe</span>
-    </div>
-    <button class="btn btn-sm" id="autonomyToggle" style="font-size:12px">
-      <span class="material-symbols-rounded" style="font-size:16px">tune</span> Levels
-    </button>
-  </div>
-  <div class="autonomy-slider" id="autonomySlider"></div>
-  <div class="card-sub" id="autonomyOneLine" style="margin-top:8px;font-size:12.5px"></div>
-  <div class="autonomy-levels" id="autonomyLevels" style="display:none;margin-top:10px"></div>
-</div>
-
-<!-- KPI tiles -->
-<div class="kpi-row" id="kpiRow"></div>
 
 <!-- Today's Focus -->
 <div class="card retention">
@@ -60,6 +37,7 @@
     </div>
     <span class="pill pill-teal"><span class="dot"></span>Live</span>
   </div>
+  <div class="task-filters" id="taskFilters"></div>
   <div class="card-body">
     <div id="negList"></div>
   </div>
