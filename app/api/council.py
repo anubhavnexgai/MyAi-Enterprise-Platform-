@@ -77,18 +77,8 @@ def _prune_runs() -> None:
 
 
 async def _autonomy_level(user: PlatformTokenClaims) -> int:
-    try:
-        rdb = get_tenant_router()
-        async with rdb.session_for(user.tenant_id) as s:
-            r = await s.execute(
-                select(UserPreference)
-                .where(UserPreference.tenant_id == user.tenant_id)
-                .where(UserPreference.creator_id == user.sub)
-            )
-            p = r.scalars().first()
-            return int(p.autonomy_level) if p else 1
-    except Exception:  # noqa: BLE001
-        return 1
+    # Autonomy removed — always fully autonomous (L5) so the council can build/run.
+    return 5
 
 
 async def _save_report(run: _Run, agent: str, title: str, content: str,

@@ -28,23 +28,6 @@
   </div>
 </div>
 
-<!-- AI Autonomy — slider + current level (moved here from the dashboard) -->
-<div class="card autonomy-card" style="padding:16px 18px;margin-bottom:14px">
-  <div class="autonomy-head" style="margin-bottom:6px">
-    <div style="display:flex;align-items:center;gap:10px">
-      <h3 class="card-title" style="margin:0">AI Autonomy</h3>
-      <span class="pill pill-red" id="levelBadge">L1 — Observe</span>
-    </div>
-    <button class="btn btn-sm" id="autonomyToggle" style="font-size:12px">
-      <span class="material-symbols-rounded" style="font-size:16px">tune</span> Levels
-    </button>
-  </div>
-  <div class="card-sub" style="margin-bottom:10px;font-size:12.5px">How much MyAi can do on its own — drag to set, from observe-only to fully autonomous.</div>
-  <div class="autonomy-slider" id="autonomySlider"></div>
-  <div class="card-sub" id="autonomyOneLine" style="margin-top:8px;font-size:12.5px"></div>
-  <div class="autonomy-levels" id="autonomyLevels" style="display:none;margin-top:10px"></div>
-</div>
-
 <div class="card card-pad" style="margin-bottom:14px">
   <h3 class="card-title" style="margin-bottom:12px">Memory &amp; Skills</h3>
   <div style="display:flex;justify-content:space-between;align-items:center">
@@ -122,9 +105,6 @@
 
 <script>
 (async function settingsInit() {
-  // AI Autonomy slider (markup above) — shared renderer lives in app.js.
-  if (window.initAutonomy) window.initAutonomy();
-
   // Restore + persist the timezone + toggle switches
   const prefs = await fetch("/api/preferences", {credentials:"include"}).then(r=>r.json()).catch(()=>null);
   const data = (prefs && prefs.data) || {};

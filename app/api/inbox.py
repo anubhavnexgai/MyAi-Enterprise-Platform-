@@ -660,14 +660,9 @@ async def delete_task(
 
 
 async def _get_autonomy(session, tenant_id: str, user_id: str) -> int:
-    pref = (
-        await session.execute(
-            _select(UserPreference)
-            .where(UserPreference.tenant_id == tenant_id)
-            .where(UserPreference.creator_id == user_id)
-        )
-    ).scalars().first()
-    return int(pref.autonomy_level) if pref else 1
+    # Autonomy removed — always fully autonomous (L5) so email send/delete/etc.
+    # work without a gating slider.
+    return 5
 
 
 async def _autonomy_gate(user: PlatformTokenClaims, action: str) -> None:

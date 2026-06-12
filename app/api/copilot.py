@@ -558,19 +558,9 @@ async def chat(
 
 
 async def _autonomy_level_for(user) -> int:
-    from app.storage.models import UserPreference
-    from app.tenants.router import get_tenant_router
-    from sqlalchemy import select as _sel
-    try:
-        router_db = get_tenant_router()
-        async with router_db.session_for(user.tenant_id) as session:
-            pref = (await session.execute(
-                _sel(UserPreference)
-                .where(UserPreference.tenant_id == user.tenant_id)
-                .where(UserPreference.creator_id == user.sub))).scalars().first()
-            return int(pref.autonomy_level) if pref else 1
-    except Exception:
-        return 1
+    # Autonomy levels were removed — MyAi runs fully autonomous (L5) so it can act
+    # (send, schedule, write, run) without a gating slider.
+    return 5
 
 
 @router.post("/orchestrate", response_model=Dict[str, Any])

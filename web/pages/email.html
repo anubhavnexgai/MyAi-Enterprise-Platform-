@@ -236,7 +236,11 @@
       else if(a==='archive') await POST(base+'/archive?confirm=true');
       else if(a==='delete') await POST(base+'/delete?confirm=true');
     }
-    toast(a.charAt(0).toUpperCase()+a.slice(1)+' '+ids.length+' message(s)','success'); selected.clear(); load();
+    toast(a.charAt(0).toUpperCase()+a.slice(1)+' '+ids.length+' message(s)','success'); selected.clear();
+    // Delete/archive remove items — drop them locally (the cached list is stale
+    // until the next harvest) instead of re-fetching; others just refresh.
+    if(a==='delete'||a==='archive'){ msgs=msgs.filter(x=>!ids.includes(x.extId)); render(); renderBulk(); }
+    else load();
   });
 
   async function openMsg(m){
@@ -265,8 +269,8 @@
     // auto mark-read
     try{ await POST('/api/inbox/'+m.account+'/'+encodeURIComponent(m.extId)+'/mark-read?confirm=true'); m.is_read=true; }catch(e){}
     const addr=(from.match(/<([^>]+)>/)||[])[1]||from;
-    document.getElementById('emArch').onclick=async()=>{ await POST('/api/inbox/'+m.account+'/'+encodeURIComponent(m.extId)+'/archive?confirm=true'); toast('Archived','success'); read.innerHTML='<div class="ws-empty">Archived.</div>'; load(); };
-    document.getElementById('emDel').onclick=async()=>{ await POST('/api/inbox/'+m.account+'/'+encodeURIComponent(m.extId)+'/delete?confirm=true'); toast('Deleted','success'); read.innerHTML='<div class="ws-empty">Deleted.</div>'; load(); };
+    document.getElementById('emArch').onclick=async()=>{ const ok=await POST('/api/inbox/'+m.account+'/'+encodeURIComponent(m.extId)+'/archive?confirm=true'); if(!ok){ toast('Archive failed — try reconnecting the mailbox','error'); return; } toast('Archived','success'); msgs=msgs.filter(x=>x.extId!==m.extId); render(); read.innerHTML='<div class="ws-empty">Archived.</div>'; };
+    document.getElementById('emDel').onclick=async()=>{ const ok=await POST('/api/inbox/'+m.account+'/'+encodeURIComponent(m.extId)+'/delete?confirm=true'); if(!ok){ toast('Delete failed — try reconnecting the mailbox','error'); return; } toast('Deleted','success'); msgs=msgs.filter(x=>x.extId!==m.extId); render(); read.innerHTML='<div class="ws-empty">Deleted.</div>'; };
     const ub=document.getElementById('emUnread'); if(ub) ub.onclick=async()=>{ await POST('/api/inbox/gmail/'+encodeURIComponent(m.extId)+'/mark-unread?confirm=true'); toast('Marked unread','success'); load(); };
     document.getElementById('emReply').onclick=()=>replyModal(m,addr,'',false);
     document.getElementById('emReplyAll').onclick=()=>replyModal(m,addr,(detail&&detail.cc)||'',true);
