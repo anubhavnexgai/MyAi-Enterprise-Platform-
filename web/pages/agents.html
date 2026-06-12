@@ -29,11 +29,12 @@
     <textarea id="aoGoal" rows="2" placeholder="e.g. A simple habit-tracker mobile app for students"></textarea>
   </label>
   <div class="ws-row" style="margin-top:8px;align-items:flex-end;flex-wrap:wrap;gap:10px">
-    <label class="ws-field" style="max-width:260px">Project (optional)
+    <label class="ws-field" style="max-width:240px">Project (optional)
       <select class="ws-input" id="aoProject"><option value="">— New / unsaved —</option></select>
     </label>
+    <button class="btn" id="aoNewProj" style="margin-bottom:2px" title="Create a new project"><span class="material-symbols-rounded">create_new_folder</span> New project</button>
     <button class="btn btn-primary" id="aoRun" style="margin-bottom:2px"><span class="material-symbols-rounded">groups</span> Run Full Council Review</button>
-    <button class="btn" id="aoSaveProj" style="margin-bottom:2px"><span class="material-symbols-rounded">bookmark_add</span> Save as project</button>
+    <button class="btn" id="aoSaveProj" style="margin-bottom:2px" title="Save the current goal as a project"><span class="material-symbols-rounded">bookmark_add</span> Save current goal</button>
   </div>
   <div class="ao-chips" id="aoChips" style="margin-top:10px"></div>
 </div>
@@ -436,19 +437,23 @@
     const p=projectList.find(x=>String(x.id)===String(this.value));
     if(p&&p.brief) document.getElementById('aoGoal').value=p.brief;
   };
-  // Save as project -> name dialog (no more auto-naming).
+  // Shared create-project dialog. "New project" opens it blank; "Save current
+  // goal" prefills from the goal box.
+  function openProjectDialog(name, brief){
+    window.openModal('<div class="modal-head"><h3>New project</h3><button class="icon-btn" data-close><span class="material-symbols-rounded">close</span></button></div>'+
+      '<div class="modal-body"><label class="ws-field" style="margin-bottom:12px">Project name'+
+      '<input class="ws-input" id="aoProjName" value="'+esc(name||'')+'" placeholder="e.g. AI study-buddy app for students" autocomplete="off"></label>'+
+      '<label class="ws-field">Goal / brief'+
+      '<textarea class="ws-input" id="aoProjBrief" rows="3" placeholder="What is this project about? (the council will use this as the goal)">'+esc(brief||'')+'</textarea></label></div>'+
+      '<div class="modal-foot" style="display:flex;gap:8px;justify-content:flex-end;padding:12px 16px;border-top:1px solid var(--border)">'+
+      '<button class="btn" data-close>Cancel</button><button class="btn btn-primary" data-act="save"><span class="material-symbols-rounded">create_new_folder</span> Create project</button></div>');
+    const nameEl=document.getElementById('aoProjName'); if(nameEl){ nameEl.focus(); if(name){ nameEl.select(); } nameEl.onkeydown=e=>{ if(e.key==='Enter') saveProject(); }; }
+    document.querySelector('[data-act="save"]')?.addEventListener('click',saveProject);
+  }
+  document.getElementById('aoNewProj').onclick=()=>openProjectDialog('','');
   document.getElementById('aoSaveProj').onclick=()=>{
     const goal=document.getElementById('aoGoal').value.trim();
-    const suggested=(goal.split('\n')[0]||goal||'Untitled project').slice(0,60);
-    window.openModal('<div class="modal-head"><h3>Save as project</h3><button class="icon-btn" data-close><span class="material-symbols-rounded">close</span></button></div>'+
-      '<div class="modal-body"><label class="ws-field" style="margin-bottom:12px">Project name'+
-      '<input class="ws-input" id="aoProjName" value="'+esc(suggested)+'" placeholder="e.g. Freelancer Invoicing App" autocomplete="off"></label>'+
-      '<label class="ws-field">Goal / brief'+
-      '<textarea class="ws-input" id="aoProjBrief" rows="3" placeholder="What is this project about?">'+esc(goal)+'</textarea></label></div>'+
-      '<div class="modal-foot" style="display:flex;gap:8px;justify-content:flex-end;padding:12px 16px;border-top:1px solid var(--border)">'+
-      '<button class="btn" data-close>Cancel</button><button class="btn btn-primary" data-act="save"><span class="material-symbols-rounded">bookmark_add</span> Save project</button></div>');
-    const nameEl=document.getElementById('aoProjName'); if(nameEl){ nameEl.focus(); nameEl.select(); nameEl.onkeydown=e=>{ if(e.key==='Enter') saveProject(); }; }
-    document.querySelector('[data-act="save"]')?.addEventListener('click',saveProject);
+    openProjectDialog((goal.split('\n')[0]||goal||'').slice(0,60), goal);
   };
 
   loadAgents(); loadReports(); loadProjects(); loadModels();

@@ -206,6 +206,16 @@ TOOL_SCHEMAS: List[Dict[str, Any]] = [
             "path": {"type": "string", "description": "Relative path within the workspace, e.g. 'src/app.py'."},
             "content": {"type": "string", "description": "Full file contents to write."}},
             "required": ["path", "content"]}}},
+    {"type": "function", "function": {
+        "name": "create_note",
+        "description": (
+            "Save a note to the user's Notes app. Use this whenever the user asks to "
+            "save / write / jot / add something to their notes (e.g. a summary, idea, "
+            "reminder, or list). The note appears in their Notes panel."),
+        "parameters": {"type": "object", "properties": {
+            "title": {"type": "string", "description": "Short note title."},
+            "content": {"type": "string", "description": "The note body (markdown is fine)."}},
+            "required": ["content"]}}},
 ]
 
 _TOOL_NAMES = [t["function"]["name"] for t in TOOL_SCHEMAS]
@@ -513,6 +523,41 @@ async def _dispatch(name: str, args: Dict[str, Any], *, user, autonomy_level: in
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_text(str(args.get("content", "")), encoding="utf-8")
             return f"Wrote {len(str(args.get('content','')))} bytes to {rel} in the project workspace."
+
+        if name == "create_note":
+            # Save a note to the user's Notes app (stored in their Odysseus
+            # instance, reached via the per-tenant bridge). Low-risk: it's the
+            # user's own notes and they explicitly asked, so it's not gated.
+            title = str(args.get("title") or "Note").strip()[:200]
+            content = str(args.get("content") or "").strip()
+            if not content:
+                return "create_note needs some 'content'."
+            try:
+                import httpx
+                from app.odysseus_bridge import get_supervisor
+                from app.config import get_settings as _gs
+                sup = get_supervisor()
+                inst = await sup.ensure_running(user.tenant_id)
+                try:
+                    await sup.ensure_user(inst, user.sub)
+                except Exception:  # noqa: BLE001
+                    pass
+                async with httpx.AsyncClient(timeout=20) as c:
+                    resp = await c.post(
+                        f"{inst.base_url}/api/notes",
+                        headers={
+                            "X-Odysseus-Internal-Token": _gs().odysseus_internal_token_value,
+                            "X-Odysseus-Owner": (user.sub or "").strip().lower(),
+                        },
+                        json={"title": title or "Note", "content": content},
+                    )
+                if resp.is_success:
+                    return (f"Saved a note titled '{title or 'Note'}' to the user's "
+                            "Notes app. They can open the Notes panel to see it.")
+                return f"Could not save the note (Notes service returned {resp.status_code})."
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("create_note failed: %s", exc)
+                return f"Could not save the note: {exc}"
     except Exception as exc:  # noqa: BLE001
         logger.warning("tool %s failed: %s", name, exc)
         return f"Tool error: {exc}"
