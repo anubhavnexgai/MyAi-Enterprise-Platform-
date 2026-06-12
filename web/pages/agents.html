@@ -121,6 +121,15 @@
 .ao-rep .pill{flex:0 0 auto}
 .ao-rep-model{display:inline-flex;align-items:center;gap:3px;color:var(--accent)}
 .ao-rep-model .material-symbols-rounded{font-size:12px}
+.ao-rep-proj{display:inline-flex;align-items:center;gap:3px;color:var(--text-strong);font-weight:600;background:var(--accent-softer);border-radius:var(--r-pill);padding:1px 8px}
+.ao-rep-proj .material-symbols-rounded{font-size:12px;color:var(--accent)}
+.ao-rep-proj-none{color:var(--text-soft);font-weight:500;background:var(--bg-subtle)}
+.ao-file{border:1px solid var(--border);border-radius:var(--r);margin-bottom:10px;overflow:hidden}
+.ao-file-head{display:flex;align-items:center;gap:7px;padding:8px 11px;background:var(--bg-subtle);border-bottom:1px solid var(--border);font-size:12.5px}
+.ao-file-head .material-symbols-rounded{font-size:16px;color:var(--accent)}
+.ao-file-head b{flex:1;color:var(--text-strong);font-family:var(--mono,monospace)}
+.ao-file-size{font-size:11px;color:var(--text-muted)}
+.ao-file-body{margin:0;padding:11px 13px;font-size:12px;line-height:1.5;overflow-x:auto;background:var(--bg-elev);white-space:pre;font-family:var(--mono,'JetBrains Mono',monospace);max-height:340px}
 .ao-undo{display:flex;align-items:center;gap:14px;background:var(--text-strong,#1f2937);color:#fff;padding:11px 14px 11px 16px;border-radius:var(--r,10px);box-shadow:0 8px 28px rgba(0,0,0,.22);font-size:13px;opacity:0;transform:translateY(8px);transition:opacity .2s,transform .2s}
 .ao-undo.in{opacity:1;transform:none}
 .ao-undo-btn{background:transparent;border:0;color:var(--accent-softer,#a5f3fc);font-weight:700;cursor:pointer;font-size:13px;padding:2px 4px}
@@ -138,8 +147,21 @@
 (function(){
   const root=document.getElementById('aoPipeline'); if(!root||root.dataset.bound==='1') return; root.dataset.bound='1';
   const esc=window.escapeHtml||(s=>s), toast=window.toast||console.log;
-  const md=window.renderMarkdownSafe||esc;
+  const mdRaw=window.renderMarkdownSafe||esc;
   const SJ=window.safeFetchJson;
+  // Reports sometimes contain LaTeX math (\rightarrow, $...$) that the markdown
+  // renderer shows raw. Convert the common symbols to unicode and drop the $ math
+  // delimiters so the report reads cleanly without a full math engine.
+  const _LATEX={'\\rightarrow':'→','\\to':'→','\\leftarrow':'←','\\Rightarrow':'⇒','\\Leftarrow':'⇐','\\leftrightarrow':'↔','\\times':'×','\\div':'÷','\\pm':'±','\\le':'≤','\\leq':'≤','\\ge':'≥','\\geq':'≥','\\neq':'≠','\\approx':'≈','\\cdot':'·','\\bullet':'•','\\infty':'∞','\\sum':'∑','\\alpha':'α','\\beta':'β','\\gamma':'γ','\\delta':'δ','\\Delta':'Δ','\\lambda':'λ','\\mu':'μ','\\pi':'π','\\sigma':'σ','\\check':'✓','\\checkmark':'✓'};
+  function deLatex(s){
+    s=String(s||'');
+    for(const k in _LATEX){ s=s.split(k).join(_LATEX[k]); }
+    s=s.replace(/\$\\?([A-Za-z]+)\$/g,'$1');      // $\word$ -> word
+    s=s.replace(/\$([^$\n]{1,40})\$/g,'$1');        // $inline$ -> inline
+    s=s.replace(/\\\(|\\\)|\\\[|\\\]/g,'');         // \( \) \[ \]
+    return s;
+  }
+  const md=(s)=>mdRaw(deLatex(s));
   const AGENTS=['research','business','architect','developer','marketing','critic'];
   const CHIPS=[['research','Research Brief'],['business','Business Plan'],['architect','Architecture'],['developer','Prototype Code'],['marketing','Launch Strategy'],['critic','Critique']];
   let running=false, agentMap={}, projectList=[], MODELS=[];
@@ -211,8 +233,9 @@
     const when=(r.created_at||'').slice(0,16).replace('T',' ');
     const friendly = r.agent==='council' ? 'Council' : ((agentMap[r.agent]&&agentMap[r.agent].title)||r.agent);
     const primary = r.agent==='council' ? (r.title||'Action plan — what we could do together') : friendly;
+    const proj = r.project_name ? '<span class="ao-rep-proj"><span class="material-symbols-rounded">folder</span>'+esc(r.project_name)+'</span>' : '<span class="ao-rep-proj ao-rep-proj-none">Unsaved</span>';
     const mb = r.model ? ' · <span class="ao-rep-model"><span class="material-symbols-rounded">memory</span>'+esc(shortModel(r.model))+'</span>' : '';
-    const sub = esc(r.agent==='council' ? when : ((r.title||'')+' · '+when))+mb;
+    const sub = proj+' · '+esc(r.agent==='council' ? when : ((r.title||'')+' · '+when))+mb;
     return '<div class="ao-rep" data-id="'+r.id+'"><div class="ao-rep-main">'+
       '<div class="ao-rep-title">'+esc(primary)+'</div>'+
       '<div class="ao-rep-sub">'+sub+'</div></div>'+
@@ -238,23 +261,65 @@
       ? '<button class="btn btn-primary" data-act="apply" title="Approve and write the code blocks into the project workspace"><span class="material-symbols-rounded">bolt</span> Approve &amp; apply</button>' : '';
     const acts = (r.status==='awaiting_approval'
       ? apply+'<button class="btn'+(hasCode?'':' btn-primary')+'" data-act="approve"><span class="material-symbols-rounded">check</span> Approve</button>'+
+        '<button class="btn" data-act="suggest"><span class="material-symbols-rounded">edit_note</span> Suggest changes</button>'+
         '<button class="btn btn-danger" data-act="reject"><span class="material-symbols-rounded">close</span> Reject</button>'
-      : '')+
+      : (r.status==='approved' && hasCode ? '<button class="btn btn-primary" data-act="files"><span class="material-symbols-rounded">folder_open</span> View applied files</button>' : ''))+
       '<button class="btn" data-act="delete"><span class="material-symbols-rounded">delete</span> Delete</button>';
     const modelLine = r.model ? ' · <span class="ao-rep-model"><span class="material-symbols-rounded">memory</span>'+esc(shortModel(r.model))+'</span>' : '';
+    const projLine = '<span class="ao-rep-proj"><span class="material-symbols-rounded">folder</span>'+esc(r.project_name||'Unsaved project')+'</span> · ';
     window.openModal('<div class="modal-head"><h3>'+esc(r.title||r.agent)+'</h3><button class="icon-btn" data-close><span class="material-symbols-rounded">close</span></button></div>'+
-      '<div class="modal-body"><div class="card-sub" style="margin-bottom:10px">'+esc(r.agent)+' · '+esc(r.status.replace("_"," "))+modelLine+'</div>'+
-      '<div style="font-size:14px;line-height:1.6">'+md(r.content||'')+'</div></div>'+
-      '<div class="modal-foot" style="display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap;padding:12px 16px;border-top:1px solid var(--border)">'+acts+'</div>');
+      '<div class="modal-body"><div class="card-sub" style="margin-bottom:10px;display:flex;align-items:center;flex-wrap:wrap;gap:2px">'+projLine+esc((agentMap[r.agent]&&agentMap[r.agent].title)||r.agent)+' · '+esc(r.status.replace("_"," "))+modelLine+'</div>'+
+      '<div id="aoRepContent" style="font-size:14px;line-height:1.6">'+md(r.content||'')+'</div></div>'+
+      '<div class="modal-foot" id="aoRepFoot" style="display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap;padding:12px 16px;border-top:1px solid var(--border)">'+acts+'</div>');
     document.querySelector('[data-act="apply"]')?.addEventListener('click',()=>applyReport(r.id));
     document.querySelector('[data-act="approve"]')?.addEventListener('click',()=>decide(r.id,'approve'));
+    document.querySelector('[data-act="suggest"]')?.addEventListener('click',()=>suggestChanges(r));
     document.querySelector('[data-act="reject"]')?.addEventListener('click',()=>decide(r.id,'reject'));
+    document.querySelector('[data-act="files"]')?.addEventListener('click',()=>viewFiles(r.id));
     document.querySelector('[data-act="delete"]')?.addEventListener('click',()=>delReport(r.id));
+  }
+
+  // Inline "suggest changes" — collect feedback, re-run the agent, get a revision.
+  function suggestChanges(r){
+    const foot=document.getElementById('aoRepFoot'); if(!foot) return;
+    foot.innerHTML='<div style="width:100%;display:flex;flex-direction:column;gap:8px">'+
+      '<textarea id="aoFeedback" class="ws-input" rows="3" placeholder="What should change? e.g. \'Make the data model simpler\', \'Add error handling\', \'Focus on the free tier\'…"></textarea>'+
+      '<div style="display:flex;gap:8px;justify-content:flex-end"><button class="btn" data-act="cancelsug">Cancel</button>'+
+      '<button class="btn btn-primary" data-act="dosug"><span class="material-symbols-rounded">autorenew</span> Send for revision</button></div></div>';
+    const fb=document.getElementById('aoFeedback'); fb&&fb.focus();
+    foot.querySelector('[data-act="cancelsug"]').onclick=()=>openReport(r);
+    foot.querySelector('[data-act="dosug"]').onclick=async()=>{
+      const feedback=(fb.value||'').trim();
+      if(!feedback){ toast('Tell the agent what to change','error'); fb.focus(); return; }
+      foot.innerHTML='<div style="width:100%;display:flex;align-items:center;gap:10px;color:var(--text-muted);justify-content:center;padding:6px"><span class="ao-spin"></span> '+esc((agentMap[r.agent]&&agentMap[r.agent].title)||r.agent)+' is revising… (this takes ~30–90s on a free model)</div>';
+      const d=await SJ('/api/council/reports/'+r.id+'/revise',{method:'POST',body:{feedback}});
+      if(d&&d.ok){ toast('Revision ready — review the new draft','success'); window.closeModal&&window.closeModal(); await loadReports(); loadAgents();
+        // open the fresh revision so the user sees it immediately
+        const nd=await SJ('/api/council/reports?limit=60'); const fresh=((nd&&nd.reports)||[]).find(x=>x.id===d.id); if(fresh) openReport(fresh);
+      } else { toast((d&&d.detail)||'Revision failed','error'); openReport(r); }
+    };
+  }
+
+  // Show the files that Approve & apply wrote into the workspace.
+  async function viewFiles(id){
+    const d=await SJ('/api/council/reports/'+id+'/files');
+    const files=(d&&d.files)||[];
+    const body = files.length
+      ? files.map(f=>'<div class="ao-file"><div class="ao-file-head"><span class="material-symbols-rounded">description</span><b>'+esc(f.path)+'</b><span class="ao-file-size">'+f.size+' B</span></div><pre class="ao-file-body">'+esc(f.content||'')+(f.truncated?'\n… (truncated)':'')+'</pre></div>').join('')
+      : '<div class="ws-empty" style="padding:20px">No files were written for this report.</div>';
+    window.openModal('<div class="modal-head"><h3>Applied files</h3><button class="icon-btn" data-close><span class="material-symbols-rounded">close</span></button></div>'+
+      '<div class="modal-body"><div class="card-sub" style="margin-bottom:10px">Written to <code>'+esc((d&&d.workspace)||'')+'</code> on the server</div>'+body+'</div>'+
+      '<div class="modal-foot" style="display:flex;justify-content:flex-end;padding:12px 16px;border-top:1px solid var(--border)"><button class="btn" data-close>Close</button></div>');
   }
 
   async function applyReport(id){
     const d=await SJ('/api/council/reports/'+id+'/apply',{method:'POST'});
-    if(d&&d.ok){ toast('Applied — wrote '+(d.files_written||[]).length+' file(s) to the workspace','success'); window.closeModal&&window.closeModal(); loadReports(); loadAgents(); }
+    if(d&&d.ok){
+      const n=(d.files_written||[]).length;
+      toast('Applied — wrote '+n+' file(s)','success');
+      window.closeModal&&window.closeModal(); await loadReports(); loadAgents();
+      viewFiles(id);   // immediately show what was written
+    }
     else toast((d&&d.detail)||'Could not apply report','error');
   }
 

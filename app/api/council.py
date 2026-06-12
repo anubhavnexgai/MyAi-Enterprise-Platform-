@@ -330,9 +330,17 @@ async def list_reports(
         q = q.order_by(AgentReport.created_at.desc()).limit(limit)
         r = await s.execute(q)
         reps = r.scalars().all()
+        # Map project_id -> name so each report row can show which project it's from.
+        pr = await s.execute(
+            select(CouncilProject.id, CouncilProject.name)
+            .where(CouncilProject.tenant_id == user.tenant_id)
+            .where(CouncilProject.creator_id == user.sub)
+        )
+        names = {pid: nm for pid, nm in pr.all()}
     return {"reports": [
         {"id": x.id, "agent": x.agent, "title": x.title, "content": x.content,
          "status": x.status, "project_id": x.project_id, "run_id": x.run_id,
+         "project_name": names.get(x.project_id) if x.project_id else None,
          "model": getattr(x, "model", None), "created_at": str(x.created_at)} for x in reps
     ]}
 
@@ -369,6 +377,109 @@ async def reject_report(rid: int, user: PlatformTokenClaims = Depends(get_curren
 async def reset_report(rid: int, user: PlatformTokenClaims = Depends(get_current_user)) -> Dict[str, Any]:
     """Revert a report to awaiting-approval — backs the 'Undo' on approve/reject."""
     return await _decide(rid, user, "awaiting_approval")
+
+
+class ReviseReq(BaseModel):
+    feedback: str
+
+
+@router.post("/reports/{rid}/revise")
+async def revise_report(rid: int, req: ReviseReq,
+                        user: PlatformTokenClaims = Depends(get_current_user)) -> Dict[str, Any]:
+    """Re-run the agent with the user's requested changes and produce a REVISED
+    report (awaiting approval). The original is marked superseded (rejected).
+    Runs synchronously — the agent call takes ~30–90s on a free model."""
+    feedback = (req.feedback or "").strip()
+    if not feedback:
+        raise HTTPException(status_code=400, detail="feedback is required")
+    from app.services.agents.specialists import get_specialist
+    from app.services.agent_loop import run_agent
+    from app.services.llm_client import get_llm_client
+
+    rdb = get_tenant_router()
+    async with rdb.session_for(user.tenant_id) as s:
+        r = await s.execute(
+            select(AgentReport).where(AgentReport.id == rid)
+            .where(AgentReport.tenant_id == user.tenant_id)
+            .where(AgentReport.creator_id == user.sub))
+        rep = r.scalars().first()
+        if not rep:
+            raise HTTPException(status_code=404, detail="report not found")
+        agent, title, content = rep.agent, rep.title, rep.content
+        project_id, run_id, model = rep.project_id, rep.run_id, getattr(rep, "model", None)
+
+    level = await _autonomy_level(user)
+    aut_label = _AUT_LABEL.get(level, "L1 Observe")
+    today = datetime.now(timezone.utc).strftime("%A, %d %B %Y")
+    seed = (f"Your PREVIOUS report:\n{(content or '')[:6000]}\n\n"
+            f"The user reviewed it and asked for these changes:\n{feedback}\n\n"
+            "Produce a REVISED report that fully addresses the feedback. Keep what "
+            "was good; change only what they asked. Return the complete revised report.")
+    sp = get_specialist(agent)
+    try:
+        if sp:
+            revised, _tools = await run_agent(
+                (title or sp.title), [], user=user, autonomy_label=aut_label,
+                autonomy_level=level, today_iso=today, seed_context=seed,
+                extra_system=sp.specialization, allowed_tools=sp.tools, model=model)
+        else:
+            resp = await get_llm_client().chat(
+                [{"role": "system", "content": "Revise the report to address the user's "
+                  "feedback. Return the full revised report only."},
+                 {"role": "user", "content": seed}], temperature=0.4, model=model)
+            revised = ((resp.get("message", {}) or {}).get("content") or "").strip()
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=500, detail=f"revision failed: {str(exc)[:200]}")
+    if not (revised or "").strip():
+        raise HTTPException(status_code=502, detail="the model returned an empty revision")
+
+    async with rdb.session_for(user.tenant_id) as s:
+        r = await s.execute(
+            select(AgentReport).where(AgentReport.id == rid)
+            .where(AgentReport.tenant_id == user.tenant_id)
+            .where(AgentReport.creator_id == user.sub))
+        old = r.scalars().first()
+        if old:
+            old.status = "rejected"
+            old.decided_at = datetime.utcnow()
+        newrep = AgentReport(
+            tenant_id=user.tenant_id, creator_id=user.sub, project_id=project_id,
+            run_id=run_id, agent=agent, title=(title or agent)[:256],
+            content=revised, model=model, status="awaiting_approval")
+        s.add(newrep)
+        await s.commit()
+        await s.refresh(newrep)
+        new_id = newrep.id
+    await get_audit_service().log(
+        tenant_id=user.tenant_id, user_id=user.sub, event_type="council.revise",
+        message=feedback[:200], payload={"from": rid, "to": new_id})
+    return {"ok": True, "id": new_id, "agent": agent}
+
+
+@router.get("/reports/{rid}/files")
+async def report_files(rid: int, user: PlatformTokenClaims = Depends(get_current_user)) -> Dict[str, Any]:
+    """List + read the files that 'Approve & apply' wrote for this report, so the
+    user can actually see the result in-app. Scoped to the report's sandbox."""
+    import pathlib
+    base = (pathlib.Path("data/council_workspace") / (user.tenant_id or "t")
+            / (user.sub or "u") / f"report_{rid}").resolve()
+    rel_ws = f"data/council_workspace/{user.tenant_id}/{user.sub}/report_{rid}"
+    files: List[dict] = []
+    if base.exists():
+        for p in sorted(base.rglob("*")):
+            if not p.is_file():
+                continue
+            try:
+                content = p.read_text(encoding="utf-8", errors="replace")
+            except Exception:  # noqa: BLE001
+                content = ""
+            files.append({
+                "path": str(p.relative_to(base)).replace("\\", "/"),
+                "size": p.stat().st_size,
+                "content": content[:40000],
+                "truncated": len(content) > 40000,
+            })
+    return {"files": files, "workspace": rel_ws}
 
 
 _LANG_EXT = {
