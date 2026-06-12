@@ -240,9 +240,9 @@ TOOL_SCHEMAS: List[Dict[str, Any]] = [
     {"type": "function", "function": {
         "name": "read_file",
         "description": (
-            "Read the text contents of one of the user's files (text/markdown/code). "
-            "Use after find_files when the user wants you to summarize, answer about, or "
-            "use what's INSIDE a file (not just open it)."),
+            "Read the text contents of one of the user's files — plain text, markdown, "
+            "code, Word (.docx) and PDF (.pdf). Use after find_files when the user wants "
+            "you to summarize, answer about, or use what's INSIDE a file (not just open it)."),
         "parameters": {"type": "object", "properties": {
             "path": {"type": "string", "description": "Full path from find_files."}},
             "required": ["path"]}}},

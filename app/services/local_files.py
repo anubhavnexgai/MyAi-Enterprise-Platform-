@@ -96,20 +96,58 @@ def find_files(query: str, limit: int = 12) -> List[Dict]:
     return out
 
 
+def _extract_docx(p: Path) -> str:
+    """Pull text out of a .docx (paragraphs + tables)."""
+    import docx  # python-docx
+    d = docx.Document(str(p))
+    parts = [para.text for para in d.paragraphs if para.text.strip()]
+    for table in d.tables:
+        for row in table.rows:
+            cells = [c.text.strip() for c in row.cells if c.text.strip()]
+            if cells:
+                parts.append(" | ".join(cells))
+    return "\n".join(parts)
+
+
+def _extract_pdf(p: Path, max_pages: int = 40) -> str:
+    """Pull text out of a .pdf (first ``max_pages`` pages)."""
+    from pypdf import PdfReader
+    reader = PdfReader(str(p))
+    out = []
+    for i, page in enumerate(reader.pages):
+        if i >= max_pages:
+            out.append(f"…(stopped at {max_pages} pages)")
+            break
+        try:
+            out.append(page.extract_text() or "")
+        except Exception:  # noqa: BLE001
+            continue
+    return "\n".join(out)
+
+
 def read_file(path: str, max_chars: int = 12000) -> str:
-    """Read a text file's contents (within the user's folders)."""
+    """Read a file's text contents (within the user's folders). Handles plain
+    text/markdown/code, plus .docx (Word) and .pdf via extraction."""
     p = Path(path)
     if not _allowed(p):
         return "BLOCKED: that path is outside your home folder."
     if not p.is_file():
         return f"No file found at {path}."
-    if p.suffix.lower() not in _TEXT_EXT:
-        return (f"'{p.name}' is a {p.suffix or 'binary'} file, not plain text — I can "
-                "open it in its app with open_file, but I can't read its text directly here.")
+    ext = p.suffix.lower()
     try:
-        txt = p.read_text(encoding="utf-8", errors="replace")
+        if ext == ".docx":
+            txt = _extract_docx(p)
+        elif ext == ".pdf":
+            txt = _extract_pdf(p)
+        elif ext in _TEXT_EXT:
+            txt = p.read_text(encoding="utf-8", errors="replace")
+        else:
+            return (f"'{p.name}' is a {ext or 'binary'} file I can't read as text — "
+                    "I can open it in its app with open_file.")
     except Exception as exc:  # noqa: BLE001
-        return f"Could not read {path}: {exc}"
+        return f"Could not read {p.name}: {exc}"
+    if not txt.strip():
+        return f"'{p.name}' opened but has no extractable text (it may be scanned/image-only)."
     return txt[:max_chars] + ("\n…(truncated)" if len(txt) > max_chars else "")
 
 
