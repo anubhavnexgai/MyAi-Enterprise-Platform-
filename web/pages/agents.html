@@ -125,6 +125,10 @@
 .ao-undo.in{opacity:1;transform:none}
 .ao-undo-btn{background:transparent;border:0;color:var(--accent-softer,#a5f3fc);font-weight:700;cursor:pointer;font-size:13px;padding:2px 4px}
 .ao-undo-btn:hover{text-decoration:underline}
+.ao-spin{width:16px;height:16px;border:2px solid var(--accent-soft);border-top-color:var(--accent);border-radius:50%;animation:aoSpin .8s linear infinite;flex:none}
+@keyframes aoSpin{to{transform:rotate(360deg)}}
+.ao-elapsed{font-size:12px;color:var(--text-muted);font-variant-numeric:tabular-nums;background:var(--bg);border:1px solid var(--border);border-radius:var(--r-pill);padding:2px 9px}
+.ao-now{font-size:12.5px;color:var(--accent);font-weight:600;margin:2px 0 8px;min-height:16px}
 .ao-log{font-size:13px;color:var(--text);display:flex;flex-direction:column;gap:6px;max-height:240px;overflow:auto}
 .ao-log .ao-line{display:flex;gap:8px;align-items:flex-start}
 .ao-log .material-symbols-rounded{font-size:16px;color:var(--accent)}
@@ -316,8 +320,16 @@
     if(running) return; running=true;
     setCouncil('planning…',true);
     const prog=document.getElementById('aoProgress'); prog.style.display='';
-    prog.innerHTML='<div class="ws-toolbar"><b class="ws-grow" id="aoHead">'+(resumed?'Reconnecting to council…':'Council is working…')+'</b></div>'+
+    prog.innerHTML='<div class="ws-toolbar" style="align-items:center;gap:8px"><span class="ao-spin"></span>'+
+      '<b class="ws-grow" id="aoHead">'+(resumed?'Reconnecting to council…':'Council is working…')+'</b>'+
+      '<span id="aoElapsed" class="ao-elapsed">0:00</span></div>'+
+      '<div class="ao-now" id="aoNow">'+(resumed?'Reconnecting…':'Planning the work…')+'</div>'+
       '<div class="ao-log" id="aoLog"><div class="ao-line"><span class="material-symbols-rounded">bolt</span>'+(resumed?'Resuming…':'Starting…')+'</div></div>';
+    // Bring the live panel into view + run an elapsed timer so it's obviously alive.
+    try{ prog.scrollIntoView({behavior:'smooth',block:'nearest'}); }catch(e){}
+    const t0=Date.now();
+    const tick=setInterval(()=>{ const s=Math.floor((Date.now()-t0)/1000); const el=document.getElementById('aoElapsed'); if(el) el.textContent=Math.floor(s/60)+':'+String(s%60).padStart(2,'0'); },1000);
+    const now=(t)=>{ const el=document.getElementById('aoNow'); if(el) el.textContent=t; };
     const log=document.getElementById('aoLog');
     function line(t){ const d=document.createElement('div'); d.className='ao-line'; d.innerHTML='<span class="material-symbols-rounded">arrow_right</span>'+esc(t); log.appendChild(d); log.scrollTop=log.scrollHeight; }
     let finalStatus='';
@@ -327,10 +339,10 @@
       while(true){ const {done,value}=await rd.read(); if(done) break; buf+=dec.decode(value,{stream:true});
         const lines=buf.split('\n'); buf=lines.pop()||'';
         for(const ln of lines){ if(!ln.startsWith('data:')) continue; let j; try{ j=JSON.parse(ln.slice(5).trim()); }catch(e){ continue; }
-          if(j.type==='plan'){ const names=(j.steps||[]).map(s=>s.agent); names.forEach(n=>setAgentState(n,'waiting')); line('Plan: '+(names.join(' → ')||'(single)')); setCouncil('planned',true); }
-          else if(j.type==='state'){ setAgentState(j.agent, j.state, j.task||null); if(j.state==='working'){ line((agentMap[j.agent]?.title||j.agent)+' — working…'); setCouncil((agentMap[j.agent]?.title||j.agent)+'…',true); } else if(j.state==='ready'){ line((agentMap[j.agent]?.title||j.agent)+' — report ready'); } }
-          else if(j.type==='synthesizing'){ line('Synthesizing the action plan…'); setCouncil('synthesizing…',true); }
-          else if(j.type==='done'){ finalStatus='done'; line('Council finished — action plan ready.');
+          if(j.type==='plan'){ const names=(j.steps||[]).map(s=>s.agent); names.forEach(n=>setAgentState(n,'waiting')); line('Plan: '+(names.join(' → ')||'(single)')); now('Plan ready — '+(names.length||1)+' agent'+(names.length===1?'':'s')+' to run'); setCouncil('planned',true); }
+          else if(j.type==='state'){ setAgentState(j.agent, j.state, j.task||null); const ttl=(agentMap[j.agent]?.title||j.agent); if(j.state==='working'){ line(ttl+' — working…'); now('▶ '+ttl+' is working'+(j.task?' — '+String(j.task).slice(0,70):'')); setCouncil(ttl+'…',true); } else if(j.state==='ready'){ line(ttl+' — report ready ✓'); now(ttl+' finished — report ready for approval'); } }
+          else if(j.type==='synthesizing'){ line('Synthesizing the action plan…'); now('Synthesizing the final action plan…'); setCouncil('synthesizing…',true); }
+          else if(j.type==='done'){ finalStatus='done'; line('Council finished — action plan ready.'); now('Done — action plan ready below');
             document.getElementById('aoHead').textContent='Council complete';
             prog.querySelector('.ws-toolbar').innerHTML='<b class="ws-grow">Council complete — action plan (awaiting your approval)</b>';
             const plan=document.createElement('div'); plan.style.cssText='margin-top:10px;font-size:14px;line-height:1.6;border-top:1px solid var(--border);padding-top:10px'; plan.innerHTML=md(j.answer||''); prog.appendChild(plan);
@@ -340,6 +352,8 @@
         }
       }
     }catch(e){ /* stream ended */ }
+    clearInterval(tick);
+    const sp=prog.querySelector('.ao-spin'); if(sp) sp.remove();
     running=false; try{ localStorage.removeItem('council_active'); }catch(e){}
     setCouncil('idle',false);
     if(finalStatus==='error'){ toast('Council run failed — see the log','error'); }

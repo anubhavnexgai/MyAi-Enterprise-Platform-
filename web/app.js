@@ -19,7 +19,6 @@ const ROUTES = {
   calendar: "pages/calendar.html",
   tasks: "pages/tasks.html",
   memory: "pages/memory.html",
-  cookbook: "pages/cookbook.html",
   research: "pages/research.html",
   agents: "pages/agents.html",
 };
@@ -131,7 +130,7 @@ async function safeFetchJson(url, options = {}) {
 /* ---------- Router ---------- */
 // Bump this to force every page fragment to refetch (defeats SW + HTTP cache,
 // which otherwise serve stale pages/*.html even when the server has new ones).
-const ASSET_BUILD = "20260611f";
+const ASSET_BUILD = "20260612a";
 async function loadFragment(route) {
   const path = ROUTES[route] || ROUTES.dashboard;
   try {
@@ -198,7 +197,6 @@ const PALETTE_ITEMS = [
   { icon: "calendar_month", label: "Calendar", run: () => (location.hash = "#/calendar") },
   { icon: "sticky_note_2", label: "Notes", run: () => (window.openNotesDrawer ? window.openNotesDrawer() : (location.hash = "#/notes")) },
   { icon: "checklist", label: "Tasks & Routines", run: () => (location.hash = "#/tasks") },
-  { icon: "restaurant", label: "Cookbook", run: () => (location.hash = "#/cookbook") },
   { icon: "monitoring", label: "Logs", run: () => (location.hash = "#/logs") },
   { icon: "hub", label: "Connectors", run: () => (location.hash = "#/connectors") },
   { icon: "settings", label: "Settings", run: () => (location.hash = "#/settings") },

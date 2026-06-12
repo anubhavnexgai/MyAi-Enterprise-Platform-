@@ -105,6 +105,26 @@
     return t.trim();
   }
 
+  // Notification/marketing emails (Teams, Microsoft, mailing lists) bury the real
+  // message under footer boilerplate ("Reply in Teams", "unsubscribe", legal text).
+  // Cut everything from the first boilerplate marker so only the meaningful body
+  // shows. Conservative: only trims if a marker appears beyond the first ~15 chars.
+  const _FOOTER_MARKERS=[
+    'Reply in Teams','Install Microsoft Teams','Open Microsoft Teams','Go to Teams',
+    'This email was sent from an unmonitored','This is an automated message',
+    'Update your email preferences','Manage your notification','Manage notifications',
+    'Privacy Statement','This email is generated through','You are receiving this',
+    'You received this','To stop receiving','Unsubscribe','View this email in your browser',
+    'Sent from Microsoft Teams','© 20','Copyright ©','All rights reserved',
+  ];
+  function cleanBody(s){
+    let t=cleanText(s); if(!t) return '';
+    let cut=-1;
+    for(const m of _FOOTER_MARKERS){ const i=t.toLowerCase().indexOf(m.toLowerCase()); if(i>15 && (cut<0||i<cut)) cut=i; }
+    if(cut>0) t=t.slice(0,cut).trim();
+    return t.replace(/\n{3,}/g,'\n\n').trim();
+  }
+
   // ---- normalize records from /api/inbox (rich) or /api/inbox/search (flags) ----
   function norm(m){
     const kind=m.external_kind||m.account||'gmail';
@@ -240,7 +260,7 @@
       (m.suggestion?'<div class="card card-pad" style="margin-top:10px;border-left:3px solid var(--accent)"><b style="font-size:12px;color:var(--accent)">AI suggestion'+(m.suggestion_action&&m.suggestion_action!=='none'?(' · '+esc(m.suggestion_action)):'')+'</b><div style="font-size:13px;margin-top:4px">'+esc(m.suggestion)+'</div></div>':'')+
       '<div id="emAi"></div>'+
       '<div id="emAtt" class="em-att"></div>'+
-      '<div class="card card-pad" id="emBody" style="margin-top:10px;white-space:pre-wrap;font-size:13px;flex:1;overflow:auto">'+esc(cleanText(body)||'(no preview)')+'</div>';
+      '<div class="card card-pad" id="emBody" style="margin-top:10px;white-space:pre-wrap;font-size:13px;flex:1;overflow:auto">'+esc(cleanBody(body)||'(no preview)')+'</div>';
     renderAttachments(m, (detail&&detail.attachments)||[]);
     // auto mark-read
     try{ await POST('/api/inbox/'+m.account+'/'+encodeURIComponent(m.extId)+'/mark-read?confirm=true'); m.is_read=true; }catch(e){}
@@ -251,7 +271,7 @@
     document.getElementById('emReply').onclick=()=>replyModal(m,addr,'',false);
     document.getElementById('emReplyAll').onclick=()=>replyModal(m,addr,(detail&&detail.cc)||'',true);
     document.getElementById('emFwd').onclick=()=>fwdModal(m,detail,body);
-    const tb=document.getElementById('emThread'); if(tb) tb.onclick=async()=>{ const t=await sj('/api/inbox/gmail/thread/'+encodeURIComponent(m.thread_id)); const msgsT=(t&&t.messages)||[]; document.getElementById('emBody').innerHTML=msgsT.map(x=>'<div style="border-top:1px solid var(--border);padding:8px 0"><b>'+esc(x.from_name||x.from||'')+'</b> <span style="color:var(--text-muted);font-size:11px">'+esc(String(x.date||'').slice(0,22))+'</span><div style="white-space:pre-wrap;margin-top:4px">'+esc(cleanText(x.body||x.snippet||''))+'</div></div>').join('')||'(no thread)'; };
+    const tb=document.getElementById('emThread'); if(tb) tb.onclick=async()=>{ const t=await sj('/api/inbox/gmail/thread/'+encodeURIComponent(m.thread_id)); const msgsT=(t&&t.messages)||[]; document.getElementById('emBody').innerHTML=msgsT.map(x=>'<div style="border-top:1px solid var(--border);padding:8px 0"><b>'+esc(x.from_name||x.from||'')+'</b> <span style="color:var(--text-muted);font-size:11px">'+esc(String(x.date||'').slice(0,22))+'</span><div style="white-space:pre-wrap;margin-top:4px">'+esc(cleanBody(x.body||x.snippet||''))+'</div></div>').join('')||'(no thread)'; };
     document.getElementById('emSum').onclick=()=>aiAction(m,from,body,'summarize');
     document.getElementById('emAiReply').onclick=()=>aiAction(m,from,body,'reply');
   }
