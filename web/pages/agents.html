@@ -131,6 +131,10 @@
 .ao-file-head b{flex:1;color:var(--text-strong);font-family:var(--mono,monospace)}
 .ao-file-size{font-size:11px;color:var(--text-muted)}
 .ao-file-body{margin:0;padding:11px 13px;font-size:12px;line-height:1.5;overflow-x:auto;background:var(--bg-elev);white-space:pre;font-family:var(--mono,'JetBrains Mono',monospace);max-height:340px}
+.ao-run{margin-bottom:12px;border:1px solid var(--border);border-radius:var(--r);overflow:hidden}
+.ao-run-head{display:flex;align-items:center;gap:7px;padding:9px 12px;background:var(--bg-subtle);font-size:12.5px}
+.ao-run-head .material-symbols-rounded{font-size:17px}
+.ao-run-out{margin:0;padding:11px 13px;font-size:12px;line-height:1.5;background:#0b1220;color:#d6e2f0;white-space:pre-wrap;font-family:var(--mono,'JetBrains Mono',monospace);max-height:260px;overflow:auto}
 .ao-undo{display:flex;align-items:center;gap:14px;background:var(--text-strong,#1f2937);color:#fff;padding:11px 14px 11px 16px;border-radius:var(--r,10px);box-shadow:0 8px 28px rgba(0,0,0,.22);font-size:13px;opacity:0;transform:translateY(8px);transition:opacity .2s,transform .2s}
 .ao-undo.in{opacity:1;transform:none}
 .ao-undo-btn{background:transparent;border:0;color:var(--accent-softer,#a5f3fc);font-weight:700;cursor:pointer;font-size:13px;padding:2px 4px}
@@ -301,16 +305,32 @@
     };
   }
 
-  // Show the files that Approve & apply wrote into the workspace.
+  // Show the files that Approve & apply wrote into the project folder + run them.
   async function viewFiles(id){
     const d=await SJ('/api/council/reports/'+id+'/files');
     const files=(d&&d.files)||[];
+    const hasPy=files.some(f=>/\.py$/i.test(f.path));
     const body = files.length
       ? files.map(f=>'<div class="ao-file"><div class="ao-file-head"><span class="material-symbols-rounded">description</span><b>'+esc(f.path)+'</b><span class="ao-file-size">'+f.size+' B</span></div><pre class="ao-file-body">'+esc(f.content||'')+(f.truncated?'\n… (truncated)':'')+'</pre></div>').join('')
       : '<div class="ws-empty" style="padding:20px">No files were written for this report.</div>';
+    const runBtn = hasPy ? '<button class="btn btn-primary" data-act="run"><span class="material-symbols-rounded">play_arrow</span> Run project</button>' : '';
     window.openModal('<div class="modal-head"><h3>Applied files</h3><button class="icon-btn" data-close><span class="material-symbols-rounded">close</span></button></div>'+
-      '<div class="modal-body"><div class="card-sub" style="margin-bottom:10px">Written to <code>'+esc((d&&d.workspace)||'')+'</code> on the server</div>'+body+'</div>'+
-      '<div class="modal-foot" style="display:flex;justify-content:flex-end;padding:12px 16px;border-top:1px solid var(--border)"><button class="btn" data-close>Close</button></div>');
+      '<div class="modal-body"><div class="card-sub" style="margin-bottom:10px">Written to your computer at:<br><code style="word-break:break-all">'+esc((d&&d.workspace)||'')+'</code></div>'+
+      '<div id="aoRunOut"></div>'+body+'</div>'+
+      '<div class="modal-foot" style="display:flex;gap:8px;justify-content:flex-end;padding:12px 16px;border-top:1px solid var(--border)">'+runBtn+'<button class="btn" data-close>Close</button></div>');
+    document.querySelector('[data-act="run"]')?.addEventListener('click',()=>runProject(id));
+  }
+
+  async function runProject(id){
+    const out=document.getElementById('aoRunOut'); if(out) out.innerHTML='<div class="ao-run"><div class="ao-run-head"><span class="ao-spin"></span> Running… (up to 45s)</div></div>';
+    const d=await SJ('/api/council/reports/'+id+'/run',{method:'POST'});
+    if(!out) return;
+    if(d&&d.ok){
+      const okc=d.exit_code===0;
+      out.innerHTML='<div class="ao-run"><div class="ao-run-head"><span class="material-symbols-rounded" style="color:'+(okc?'var(--green)':'var(--red)')+'">'+(okc?'check_circle':'error')+'</span> <code>'+esc(d.command||'')+'</code> · exit '+d.exit_code+'</div><pre class="ao-run-out">'+esc(d.output||'(no output)')+'</pre></div>';
+    } else {
+      out.innerHTML='<div class="ao-run"><div class="ao-run-head"><span class="material-symbols-rounded" style="color:var(--red)">error</span> '+esc((d&&d.detail)||'Run failed')+'</div></div>';
+    }
   }
 
   async function applyReport(id){

@@ -23,6 +23,7 @@ from sqlalchemy import func, select
 
 from app.auth.jwt import PlatformTokenClaims
 from app.auth.middleware import get_current_user
+from app.config import get_settings
 from app.services.agents.orchestrator import run_orchestrator
 from app.services.agents.specialists import council_names, council_specialists
 from app.services.audit import get_audit_service
@@ -456,14 +457,33 @@ async def revise_report(rid: int, req: ReviseReq,
     return {"ok": True, "id": new_id, "agent": agent}
 
 
+async def _resolve_report_dir(s, user, rid: int):
+    """The folder a report's files live in — the real project dir, falling back to
+    the legacy per-report sandbox for older applies."""
+    import pathlib
+    r = await s.execute(
+        select(AgentReport).where(AgentReport.id == rid)
+        .where(AgentReport.tenant_id == user.tenant_id)
+        .where(AgentReport.creator_id == user.sub))
+    rep = r.scalars().first()
+    if not rep:
+        raise HTTPException(status_code=404, detail="report not found")
+    base = await _project_dir(s, user, rep)
+    if not base.exists():
+        legacy = (pathlib.Path("data/council_workspace") / (user.tenant_id or "t")
+                  / (user.sub or "u") / f"report_{rid}").resolve()
+        if legacy.exists():
+            base = legacy
+    return base
+
+
 @router.get("/reports/{rid}/files")
 async def report_files(rid: int, user: PlatformTokenClaims = Depends(get_current_user)) -> Dict[str, Any]:
-    """List + read the files that 'Approve & apply' wrote for this report, so the
-    user can actually see the result in-app. Scoped to the report's sandbox."""
-    import pathlib
-    base = (pathlib.Path("data/council_workspace") / (user.tenant_id or "t")
-            / (user.sub or "u") / f"report_{rid}").resolve()
-    rel_ws = f"data/council_workspace/{user.tenant_id}/{user.sub}/report_{rid}"
+    """List + read the files that 'Approve & apply' wrote, so the user can see the
+    result in-app and find them on disk."""
+    rdb = get_tenant_router()
+    async with rdb.session_for(user.tenant_id) as s:
+        base = await _resolve_report_dir(s, user, rid)
     files: List[dict] = []
     if base.exists():
         for p in sorted(base.rglob("*")):
@@ -479,7 +499,59 @@ async def report_files(rid: int, user: PlatformTokenClaims = Depends(get_current
                 "content": content[:40000],
                 "truncated": len(content) > 40000,
             })
-    return {"files": files, "workspace": rel_ws}
+    return {"files": files, "workspace": str(base)}
+
+
+@router.post("/reports/{rid}/run")
+async def run_report(rid: int, user: PlatformTokenClaims = Depends(get_current_user)) -> Dict[str, Any]:
+    """Run the applied project and return its output. HIGH-RISK (executes
+    generated code) — gated to autonomy L4+, runs in the project folder, capped at
+    45s. Finds a Python entry point (main.py/app.py/run.py or the only *.py)."""
+    import asyncio
+    import sys
+    level = await _autonomy_level(user)
+    if level < 4:
+        raise HTTPException(
+            status_code=403,
+            detail="Running generated code needs autonomy L4+ — raise the slider in Settings first.")
+    rdb = get_tenant_router()
+    async with rdb.session_for(user.tenant_id) as s:
+        base = await _resolve_report_dir(s, user, rid)
+    if not base.exists():
+        raise HTTPException(status_code=400, detail="Nothing applied yet — Approve & apply first.")
+    entry = None
+    for cand in ("main.py", "app.py", "run.py", "__main__.py"):
+        if (base / cand).is_file():
+            entry = cand
+            break
+    if not entry:
+        pys = [p for p in base.glob("*.py")]
+        if len(pys) == 1:
+            entry = pys[0].name
+    if not entry:
+        raise HTTPException(
+            status_code=400,
+            detail="Couldn't find a Python entry point (main.py / app.py). Only self-contained "
+                   "Python projects can be run for now.")
+    cmd = [sys.executable, entry]
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            *cmd, cwd=str(base),
+            stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT)
+        try:
+            out, _ = await asyncio.wait_for(proc.communicate(), timeout=45)
+            output = out.decode("utf-8", errors="replace")
+            code = proc.returncode
+        except asyncio.TimeoutError:
+            proc.kill()
+            output, code = "(stopped — ran longer than 45s)", -1
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=500, detail=f"could not run: {str(exc)[:200]}")
+    await get_audit_service().log(
+        tenant_id=user.tenant_id, user_id=user.sub, event_type="council.run_code",
+        message=f"ran {entry} for report {rid}", payload={"exit_code": code})
+    return {"ok": True, "command": " ".join(cmd), "entry": entry,
+            "exit_code": code, "output": (output or "(no output)")[:12000]}
 
 
 _LANG_EXT = {
@@ -507,6 +579,8 @@ def _extract_code_files(content: str) -> List[Dict[str, str]]:
         m = _FILENAME_HINT_RE.match(first)
         if m:
             name = m.group(1).strip().lstrip("/\\")
+            # drop the `# file:` hint line itself from the written content
+            body = "\n".join(body.splitlines()[1:]) if len(body.splitlines()) > 1 else body
         else:
             ext = _LANG_EXT.get((lang or "").lower().strip(), "txt")
             name = f"block_{i}.{ext}"
@@ -514,12 +588,38 @@ def _extract_code_files(content: str) -> List[Dict[str, str]]:
     return out
 
 
+def _projects_root():
+    """The real, findable root folder where applied projects are written."""
+    import pathlib
+    raw = (get_settings().council_projects_dir or "").strip()
+    return pathlib.Path(raw).expanduser() if raw else (pathlib.Path.home() / "MyAiProjects")
+
+
+def _slugify(name: str, fallback: str) -> str:
+    s = re.sub(r"[^A-Za-z0-9._ -]+", "", (name or "").strip())
+    s = re.sub(r"[\s_]+", "-", s).strip("-").lower()
+    return s[:60] or fallback
+
+
+async def _project_dir(s, user, rep):
+    """Resolve the real on-disk folder for a report's project (so all reports of
+    a project accumulate into one runnable project folder)."""
+    name = None
+    if rep.project_id:
+        pr = await s.execute(
+            select(CouncilProject.name).where(CouncilProject.id == rep.project_id)
+            .where(CouncilProject.tenant_id == user.tenant_id))
+        name = pr.scalar()
+    slug = _slugify(name, f"report-{rep.id}")
+    return (_projects_root() / slug).resolve()
+
+
 @router.post("/reports/{rid}/apply")
 async def apply_report(rid: int, user: PlatformTokenClaims = Depends(get_current_user)) -> Dict[str, Any]:
-    """Approve a report AND write its code blocks into the project workspace
-    sandbox. This is the user-authorized side-effect: nothing is written until
-    the user explicitly clicks Approve & Apply (the council itself only drafts)."""
-    import pathlib
+    """Approve a report AND write its code blocks into a REAL project folder
+    (``~/MyAiProjects/<project>``) so it can be opened and run directly. Nothing
+    is written until the user explicitly clicks Approve & Apply."""
+    from app.config import get_settings as _gs  # noqa: F401  (ensures settings import path)
     rdb = get_tenant_router()
     async with rdb.session_for(user.tenant_id) as s:
         r = await s.execute(
@@ -530,12 +630,10 @@ async def apply_report(rid: int, user: PlatformTokenClaims = Depends(get_current
         rep = r.scalars().first()
         if not rep:
             raise HTTPException(status_code=404, detail="report not found")
-        content = rep.content or ""
-        files = _extract_code_files(content)
+        files = _extract_code_files(rep.content or "")
         if not files:
             raise HTTPException(status_code=400, detail="No code blocks to apply in this report.")
-        base = (pathlib.Path("data/council_workspace") / (user.tenant_id or "t")
-                / (user.sub or "u") / f"report_{rid}").resolve()
+        base = await _project_dir(s, user, rep)
         written: List[str] = []
         for f in files:
             rel = f["path"].lstrip("/\\")
@@ -550,11 +648,10 @@ async def apply_report(rid: int, user: PlatformTokenClaims = Depends(get_current
         await s.commit()
     await get_audit_service().log(
         tenant_id=user.tenant_id, user_id=user.sub, event_type="council.apply",
-        message=f"applied report {rid}", payload={"files": written},
+        message=f"applied report {rid}", payload={"files": written, "dir": str(base)},
     )
-    workspace = f"data/council_workspace/{user.tenant_id}/{user.sub}/report_{rid}"
     return {"ok": True, "id": rid, "status": "approved",
-            "files_written": written, "workspace": workspace}
+            "files_written": written, "workspace": str(base)}
 
 
 @router.delete("/reports/{rid}")

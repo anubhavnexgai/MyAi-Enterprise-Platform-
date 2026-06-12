@@ -105,6 +105,10 @@ class Settings(BaseSettings):
     odysseus_port_base: int = 8610                 # instance ports allocated upward from here
     odysseus_internal_token: str = ""              # trusted-proxy shared secret; "" -> derive from jwt_secret_key
     odysseus_idle_timeout_s: int = 1800            # reap a tenant instance after this many idle seconds (0 = never)
+    # Where the Agents Council writes "Approve & apply" project files. Default is a
+    # real, findable folder in the user's home so generated projects can be opened
+    # and run directly (override with COUNCIL_PROJECTS_DIR).
+    council_projects_dir: str = ""                 # "" -> <home>/MyAiProjects
     odysseus_boot_timeout_s: int = 90              # seconds to wait for an instance to become healthy
     # Embed the REAL Odysseus UI (Cookbook, Tasks, Gallery, etc.) via iframe to
     # the per-tenant instance on loopback. LOCAL deployments only: instances bind
