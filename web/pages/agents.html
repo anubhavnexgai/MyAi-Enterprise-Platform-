@@ -49,7 +49,8 @@
     <div class="ao-stat"><span>Awaiting approval</span><b id="aoAwait" class="pill pill-orange">0</b></div>
     <div class="ao-stat"><span>Council members</span><b id="aoCount">6</b></div>
     <div class="ao-stat"><span>Status</span><b id="aoLive">idle</b></div>
-    <div class="card-sub" style="margin-top:10px">Agents generate <b>reports only</b> — approve a report to accept it into the pipeline.</div>
+    <button class="btn btn-primary" id="aoProjectResult" style="width:100%;margin-top:12px"><span class="material-symbols-rounded">rocket_launch</span> Build &amp; run project</button>
+    <div class="card-sub" style="margin-top:10px">Agents draft <b>reports</b>; approving accepts them. Hit <b>Build &amp; run</b> to turn the approved plan into real files on your computer and run them.</div>
   </div>
   <div class="card ao-reports">
     <div class="card-pad" style="padding-bottom:8px"><div class="ws-toolbar"><h3 style="margin:0" class="ws-grow">Reports waiting for approval</h3></div></div>
@@ -333,6 +334,41 @@
     }
   }
 
+  // The "now what?" view — the project's action plan + Build & Run in one place.
+  async function openProjectResult(){
+    const pid=document.getElementById('aoProject').value;
+    if(!pid){ toast('Pick a saved project first (or save one), then Build & run','info'); return; }
+    const d=await SJ('/api/council/projects/'+pid+'/result');
+    if(!d){ toast('Could not load the project','error'); return; }
+    const planHtml = d.action_plan ? md(d.action_plan) : '<div class="ws-empty" style="padding:14px">No action plan yet — run a Full Council Review first.</div>';
+    window.openModal('<div class="modal-head"><h3>'+esc(d.project||'Project')+' — result</h3><button class="icon-btn" data-close><span class="material-symbols-rounded">close</span></button></div>'+
+      '<div class="modal-body">'+
+      '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px">'+
+        (d.has_code?'<button class="btn btn-primary" data-act="buildrun"><span class="material-symbols-rounded">rocket_launch</span> Build &amp; run</button>':'<span class="card-sub">This project has no code to build yet.</span>')+
+      '</div>'+
+      '<div id="aoBuildOut"></div>'+
+      '<h4 style="margin:6px 0 8px;color:var(--text-strong)">Action plan — what we could do together</h4>'+
+      '<div style="font-size:14px;line-height:1.6">'+planHtml+'</div></div>'+
+      '<div class="modal-foot" style="display:flex;justify-content:flex-end;padding:12px 16px;border-top:1px solid var(--border)"><button class="btn" data-close>Close</button></div>');
+    document.querySelector('[data-act="buildrun"]')?.addEventListener('click',()=>buildAndRun(pid));
+  }
+
+  async function buildAndRun(pid){
+    const out=document.getElementById('aoBuildOut'); if(!out) return;
+    out.innerHTML='<div class="ao-run"><div class="ao-run-head"><span class="ao-spin"></span> Building the project files…</div></div>';
+    const b=await SJ('/api/council/projects/'+pid+'/build',{method:'POST'});
+    if(!b||!b.ok){ out.innerHTML='<div class="ao-run"><div class="ao-run-head"><span class="material-symbols-rounded" style="color:var(--red)">error</span> '+esc((b&&b.detail)||'Build failed')+'</div></div>'; return; }
+    const filesHtml=(b.files_written||[]).map(f=>'<code style="margin-right:8px">'+esc(f)+'</code>').join('');
+    out.innerHTML='<div class="ao-run"><div class="ao-run-head"><span class="material-symbols-rounded" style="color:var(--green)">check_circle</span> Wrote '+(b.files_written||[]).length+' file(s) to <code style="word-break:break-all">'+esc(b.folder||'')+'</code></div><div style="padding:8px 12px;font-size:12px">'+filesHtml+'</div></div>'+
+      '<div class="ao-run"><div class="ao-run-head"><span class="ao-spin"></span> Running…</div></div>';
+    const r=await SJ('/api/council/projects/'+pid+'/run',{method:'POST'});
+    const runEl=out.querySelectorAll('.ao-run')[1];
+    if(r&&r.ok){ const okc=r.exit_code===0;
+      runEl.innerHTML='<div class="ao-run-head"><span class="material-symbols-rounded" style="color:'+(okc?'var(--green)':'var(--red)')+'">'+(okc?'check_circle':'error')+'</span> <code>'+esc(r.command||'')+'</code> · exit '+r.exit_code+'</div><pre class="ao-run-out">'+esc(r.output||'(no output)')+'</pre>';
+    } else { runEl.innerHTML='<div class="ao-run-head"><span class="material-symbols-rounded" style="color:var(--orange)">info</span> '+esc((r&&r.detail)||'Could not run — see the folder above')+'</div>'; }
+    loadReports();
+  }
+
   async function applyReport(id){
     const d=await SJ('/api/council/reports/'+id+'/apply',{method:'POST'});
     if(d&&d.ok){
@@ -451,6 +487,7 @@
   document.getElementById('aoChips').innerHTML=CHIPS.map(c=>'<button class="ao-chip" data-agent="'+c[0]+'">'+esc(c[1])+'</button>').join('');
   document.getElementById('aoChips').querySelectorAll('.ao-chip').forEach(b=>b.onclick=()=>runCouncil(b.dataset.agent));
   document.getElementById('aoRun').onclick=()=>runCouncil(null);
+  document.getElementById('aoProjectResult').onclick=openProjectResult;
   document.getElementById('aoRefresh').onclick=()=>{ loadAgents(); loadReports(); loadProjects(); };
   // Pick a saved project -> load its goal into the textarea.
   document.getElementById('aoProject').onchange=function(){

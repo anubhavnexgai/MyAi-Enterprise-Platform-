@@ -310,6 +310,124 @@ async def create_project(req: ProjectReq, user: PlatformTokenClaims = Depends(ge
     return {"id": p.id, "name": p.name, "brief": p.brief}
 
 
+@router.get("/projects/{pid}/result")
+async def project_result(pid: int, user: PlatformTokenClaims = Depends(get_current_user)) -> Dict[str, Any]:
+    """Everything the council produced for a project: the action plan, whether it
+    has buildable code, and the on-disk folder — so the user has one 'what now' view."""
+    rdb = get_tenant_router()
+    async with rdb.session_for(user.tenant_id) as s:
+        pr = await s.execute(select(CouncilProject).where(CouncilProject.id == pid)
+                             .where(CouncilProject.tenant_id == user.tenant_id)
+                             .where(CouncilProject.creator_id == user.sub))
+        proj = pr.scalars().first()
+        if not proj:
+            raise HTTPException(status_code=404, detail="project not found")
+        rr = await s.execute(select(AgentReport).where(AgentReport.project_id == pid)
+                             .where(AgentReport.tenant_id == user.tenant_id)
+                             .where(AgentReport.creator_id == user.sub)
+                             .order_by(AgentReport.created_at.desc()))
+        reps = rr.scalars().all()
+    plan = next((r.content for r in reps if r.agent == "council"), "")
+    has_code = any("```" in (r.content or "") for r in reps)
+    base = (_projects_root() / _slugify(proj.name, f"project-{pid}")).resolve()
+    return {"project": proj.name, "action_plan": plan, "has_code": has_code,
+            "folder": str(base), "report_count": len(reps)}
+
+
+@router.post("/projects/{pid}/build")
+async def build_project(pid: int, user: PlatformTokenClaims = Depends(get_current_user)) -> Dict[str, Any]:
+    """Write ALL of a project's code (from every code-bearing report) into the real
+    project folder, and approve those reports. The 'make it real' button."""
+    rdb = get_tenant_router()
+    async with rdb.session_for(user.tenant_id) as s:
+        pr = await s.execute(select(CouncilProject).where(CouncilProject.id == pid)
+                             .where(CouncilProject.tenant_id == user.tenant_id)
+                             .where(CouncilProject.creator_id == user.sub))
+        proj = pr.scalars().first()
+        if not proj:
+            raise HTTPException(status_code=404, detail="project not found")
+        rr = await s.execute(select(AgentReport).where(AgentReport.project_id == pid)
+                             .where(AgentReport.tenant_id == user.tenant_id)
+                             .where(AgentReport.creator_id == user.sub)
+                             .order_by(AgentReport.created_at))
+        reps = rr.scalars().all()
+        base = (_projects_root() / _slugify(proj.name, f"project-{pid}")).resolve()
+        written: List[str] = []
+        for rep in reps:
+            if "```" not in (rep.content or ""):
+                continue
+            for f in _extract_code_files(rep.content):
+                rel = f["path"].lstrip("/\\")
+                target = (base / rel).resolve()
+                if not str(target).startswith(str(base)):
+                    continue
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_text(f["content"], encoding="utf-8")
+                if rel not in written:
+                    written.append(rel)
+                if rep.status == "awaiting_approval":
+                    rep.status = "approved"
+                    rep.decided_at = datetime.utcnow()
+        await s.commit()
+    if not written:
+        raise HTTPException(status_code=400, detail="This project has no code to build yet.")
+    await get_audit_service().log(
+        tenant_id=user.tenant_id, user_id=user.sub, event_type="council.build",
+        message=f"built project {pid}", payload={"files": written, "dir": str(base)})
+    return {"ok": True, "folder": str(base), "files_written": written}
+
+
+@router.post("/projects/{pid}/run")
+async def run_project(pid: int, user: PlatformTokenClaims = Depends(get_current_user)) -> Dict[str, Any]:
+    """Run the project's folder (reuses the per-report runner via the project dir)."""
+    import asyncio
+    import sys
+    level = await _autonomy_level(user)
+    if level < 4:
+        raise HTTPException(status_code=403,
+                            detail="Running generated code needs autonomy L4+ — raise the slider in Settings.")
+    rdb = get_tenant_router()
+    async with rdb.session_for(user.tenant_id) as s:
+        pr = await s.execute(select(CouncilProject.name).where(CouncilProject.id == pid)
+                             .where(CouncilProject.tenant_id == user.tenant_id)
+                             .where(CouncilProject.creator_id == user.sub))
+        name = pr.scalar()
+    if name is None:
+        raise HTTPException(status_code=404, detail="project not found")
+    base = (_projects_root() / _slugify(name, f"project-{pid}")).resolve()
+    if not base.exists():
+        raise HTTPException(status_code=400, detail="Nothing built yet — click Build first.")
+    entry = None
+    for cand in ("main.py", "app.py", "run.py", "__main__.py"):
+        if (base / cand).is_file():
+            entry = cand
+            break
+    if not entry:
+        pys = [p for p in base.glob("*.py")]
+        if len(pys) == 1:
+            entry = pys[0].name
+    if not entry:
+        raise HTTPException(status_code=400,
+                            detail="No Python entry point (main.py/app.py). Only self-contained Python runs for now.")
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            sys.executable, entry, cwd=str(base),
+            stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT)
+        try:
+            out, _ = await asyncio.wait_for(proc.communicate(), timeout=45)
+            output, code = out.decode("utf-8", errors="replace"), proc.returncode
+        except asyncio.TimeoutError:
+            proc.kill()
+            output, code = "(stopped — ran longer than 45s)", -1
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=500, detail=f"could not run: {str(exc)[:200]}")
+    await get_audit_service().log(
+        tenant_id=user.tenant_id, user_id=user.sub, event_type="council.run_code",
+        message=f"ran project {pid} ({entry})", payload={"exit_code": code})
+    return {"ok": True, "command": f"python {entry}", "entry": entry,
+            "exit_code": code, "output": (output or "(no output)")[:12000]}
+
+
 # --- Reports + approval -----------------------------------------------------
 
 @router.get("/reports")
