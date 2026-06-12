@@ -304,7 +304,7 @@
     const dl=foot.querySelector('[data-a="del"]'); if(dl) dl.onclick=()=>{ foot.closest('.oc-msg').remove(); };
   }
 
-  const TOOL_LABELS={web_search:'Searching the web',fetch_url:'Reading a page',search_email:'Reading your email',list_calendar:'Checking your calendar',search_drive:'Searching your files',recall_contact:'Recalling a contact',recall_memory:'Recalling memory',deep_research:'Researching',send_email:'Sending email',create_calendar_event:'Creating event',update_calendar_event:'Updating event',write_file:'Writing a file',create_note:'Saving a note'};
+  const TOOL_LABELS={web_search:'Searching the web',fetch_url:'Reading a page',search_email:'Reading your email',list_calendar:'Checking your calendar',search_drive:'Searching your files',recall_contact:'Recalling a contact',recall_memory:'Recalling memory',deep_research:'Researching',send_email:'Sending email',create_calendar_event:'Creating event',update_calendar_event:'Updating event',write_file:'Writing a file',create_note:'Saving a note',find_files:'Finding a file',open_file:'Opening a file',read_file:'Reading a file'};
   async function send(){
     const text=input.value.trim(); if(!text||state.streaming) return;
     state.lastUser=text; input.value=''; autosize();

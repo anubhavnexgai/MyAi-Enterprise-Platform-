@@ -216,6 +216,36 @@ TOOL_SCHEMAS: List[Dict[str, Any]] = [
             "title": {"type": "string", "description": "Short note title."},
             "content": {"type": "string", "description": "The note body (markdown is fine)."}},
             "required": ["content"]}}},
+    {"type": "function", "function": {
+        "name": "find_files",
+        "description": (
+            "Search the user's own files (Documents, Desktop, Downloads, OneDrive, "
+            "etc.) by keywords. Use this to resolve a natural-language file request "
+            "like 'the latest PRD for MyAi' — pass the key words ('PRD MyAi'); results "
+            "come back ranked by relevance and most-recent-first, with full paths and "
+            "modified dates, so YOU pick the right one (e.g. the latest). Then use "
+            "open_file or read_file with the chosen path."),
+        "parameters": {"type": "object", "properties": {
+            "query": {"type": "string", "description": "Keywords from the user's request, e.g. 'PRD MyAi'."}},
+            "required": ["query"]}}},
+    {"type": "function", "function": {
+        "name": "open_file",
+        "description": (
+            "Open one of the user's files in its default app (Word, PDF viewer, etc.) "
+            "on their computer. Use after find_files to actually open the file the user "
+            "asked for, e.g. 'open the latest PRD'."),
+        "parameters": {"type": "object", "properties": {
+            "path": {"type": "string", "description": "Full path from find_files."}},
+            "required": ["path"]}}},
+    {"type": "function", "function": {
+        "name": "read_file",
+        "description": (
+            "Read the text contents of one of the user's files (text/markdown/code). "
+            "Use after find_files when the user wants you to summarize, answer about, or "
+            "use what's INSIDE a file (not just open it)."),
+        "parameters": {"type": "object", "properties": {
+            "path": {"type": "string", "description": "Full path from find_files."}},
+            "required": ["path"]}}},
 ]
 
 _TOOL_NAMES = [t["function"]["name"] for t in TOOL_SCHEMAS]
@@ -267,6 +297,10 @@ def _system_prompt(user_name: str, email: str, today_iso: str, autonomy_label: s
         "- To CHANGE an existing meeting (move its time, make it weekdays-only, rename), call "
         "update_calendar_event — do NOT create_calendar_event, which would make duplicates. "
         "create_calendar_event is only for brand-new events. For 'every weekday' pass recurrence='weekdays'.\n"
+        "- For the user's OWN FILES ('open the latest PRD for MyAi', 'read my notes doc', "
+        "'what's in my budget spreadsheet'): call find_files with the key words first, then "
+        "open_file (to launch it) or read_file (to read its text). find_files returns matches "
+        "most-recent-first, so for 'latest' just take the top result. Don't guess paths.\n"
         "- ONLY use the computer-use tools when the user EXPLICITLY asks you to look at their "
         "screen or to open/click/type in an app. NEVER take a screenshot for an email, calendar, "
         "meeting-prep, research, or general question — answer those from your other tools/knowledge.\n"
@@ -560,6 +594,21 @@ async def _dispatch(name: str, args: Dict[str, Any], *, user, autonomy_level: in
             except Exception as exc:  # noqa: BLE001
                 logger.warning("create_note failed: %s", exc)
                 return f"Could not save the note: {exc}"
+
+        if name in ("find_files", "open_file", "read_file"):
+            from app.services import local_files
+            if name == "find_files":
+                hits = local_files.find_files(str(args.get("query", "")))
+                if not hits:
+                    return "No matching files found in the user's folders."
+                lines = [f"{i+1}. {h['name']}  —  modified {h['modified']}  —  {h['path']}"
+                         for i, h in enumerate(hits)]
+                return ("Found these files (most relevant / recent first):\n"
+                        + "\n".join(lines)
+                        + "\n\nPick the right path, then open_file or read_file it.")
+            if name == "open_file":
+                return local_files.open_file(str(args.get("path", "")))
+            return local_files.read_file(str(args.get("path", "")))
     except Exception as exc:  # noqa: BLE001
         logger.warning("tool %s failed: %s", name, exc)
         return f"Tool error: {exc}"

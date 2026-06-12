@@ -130,7 +130,7 @@ async function safeFetchJson(url, options = {}) {
 /* ---------- Router ---------- */
 // Bump this to force every page fragment to refetch (defeats SW + HTTP cache,
 // which otherwise serve stale pages/*.html even when the server has new ones).
-const ASSET_BUILD = "20260612f";
+const ASSET_BUILD = "20260612g";
 async function loadFragment(route) {
   const path = ROUTES[route] || ROUTES.dashboard;
   try {
