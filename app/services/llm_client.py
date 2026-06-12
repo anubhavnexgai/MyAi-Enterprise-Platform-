@@ -50,6 +50,24 @@ def is_chat_capable_model(model_id: str) -> bool:
     return not _NON_CHAT_MODEL_RE.search(mid)
 
 
+# --- Local embeddings (FastEmbed) -------------------------------------------
+# Semantic memory needs an embedder. OpenRouter doesn't serve embeddings, so
+# rather than depend on a local Ollama process, we embed IN-PROCESS with
+# FastEmbed (a small ONNX model, ~130MB, downloaded once). Free, private, no
+# Ollama, no API. 384-dim (BAAI/bge-small-en-v1.5).
+_FASTEMBED_MODEL = os.environ.get("FASTEMBED_MODEL", "BAAI/bge-small-en-v1.5")
+_fastembed = None
+
+
+def _fastembed_embed(texts: List[str]) -> List[List[float]]:
+    global _fastembed
+    if _fastembed is None:
+        from fastembed import TextEmbedding
+        _fastembed = TextEmbedding(_FASTEMBED_MODEL)
+        logger.info("FastEmbed loaded (%s) — semantic memory embeddings are local", _FASTEMBED_MODEL)
+    return [list(map(float, v)) for v in _fastembed.embed(list(texts))]
+
+
 class LLMClient:
     """Provider-agnostic chat client. Same interface for both backends."""
 
@@ -162,11 +180,16 @@ class LLMClient:
         clean = [t for t in (texts or []) if t and t.strip()]
         if not clean:
             return []
+        # Primary: local in-process FastEmbed (no Ollama / no external API).
         try:
-            # Embeddings run on local Ollama regardless of the chat provider.
+            import asyncio
+            return await asyncio.to_thread(_fastembed_embed, clean)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("FastEmbed unavailable, falling back to Ollama: %s", exc)
+        try:
             return await self._ollama_embed(clean, model or self.embed_model)
         except Exception as exc:  # noqa: BLE001 — embeddings are optional
-            logger.warning("embed failed (semantic memory will no-op): %s", exc)
+            logger.warning("embed failed (semantic memory keyword-only): %s", exc)
             return []
 
     async def _ollama_embed(self, texts: List[str], model: str) -> List[List[float]]:
